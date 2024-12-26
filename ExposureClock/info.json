@@ -3,7 +3,8 @@
       "short" : "Exposure Countdown Clock game'",
       "description" : "Made for TBC server by Jen. Lets users upload a file with a countdown to becoming public. They can check in to re-up the time.",
       "name" : "ExposureClock",
-      "requirements": ["redbot, aiofiles, apscheduler, discord.py"],
+      "requirements": ["tabulate"],
       "tags" : ["games"],
-      "install_msg" : "Thank you for installing ExposureClock. Made by @jenerative."
+      "install_msg" : "Thank you for installing ExposureClock. Made by @jenerative.",
+      "end_user_data_statement": "This cog stores discord IDs as needed for operation."
   }
