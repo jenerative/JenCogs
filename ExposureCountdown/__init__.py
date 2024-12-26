@@ -2,7 +2,7 @@
 
 from redbot.core import commands
 
-class FileUploaderCog(commands.Cog):
+class ExposureCountdownCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
@@ -26,4 +26,4 @@ class FileUploaderCog(commands.Cog):
         pass
 
 def setup(bot):
-    bot.add_cog(FileUploaderCog(bot))
+    bot.add_cog(ExposureCountdownCog(bot))

@@ -1,6 +1,6 @@
 {
-    "author": [ "Jen (@jenerative)" ],
-      "short" : "Exposure Countdown Clock game'",
+      "author": [ "Jen (@jenerative)" ],
+      "short" : "Exposure Countdown Clock game",
       "description" : "Made for TBC server by Jen. Lets users upload a file with a countdown to becoming public. They can check in to re-up the time.",
       "name" : "ExposureClock",
       "requirements": ["tabulate"],
