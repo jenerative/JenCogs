@@ -1,7 +1,7 @@
 import datetime
 from discord.ext import commands
 
-class FileUploaderCog(commands.Cog):
+class ExposureCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.files = {}  # Dictionary to store file metadata
