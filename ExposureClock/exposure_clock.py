@@ -1,11 +1,12 @@
 import datetime
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 class ExposureCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.files = {}  # Dictionary to store file metadata
         self.channel_id = None  # Channel ID for posting expired files
+        self.check_expiry.start()  # Start the task to check for expired files
 
     @commands.command()
     @commands.has_permissions(administrator=True)
@@ -44,6 +45,7 @@ class ExposureCog(commands.Cog):
         else:
             await ctx.send("You have not uploaded a file or the expiry is not set.")
 
+    @tasks.loop(minutes=1)
     async def check_expiry(self):
         current_time = datetime.datetime.now()
         for user_id, data in list(self.files.items()):
@@ -52,3 +54,10 @@ class ExposureCog(commands.Cog):
                     channel = self.bot.get_channel(self.channel_id)
                     await channel.send(f"File from user {user_id} is now public.")
                 del self.files[user_id]  # Remove the file from the dictionary
+
+    @check_expiry.before_loop
+    async def before_check_expiry(self):
+        await self.bot.wait_until_ready()
+
+def setup(bot):
+    bot.add_cog(ExposureCog(bot))
