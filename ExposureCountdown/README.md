@@ -1,6 +1,6 @@
-# File Uploader Cog for Red Discord Bot
+# Exposure Countdown Cog for Red Discord Bot
 
-This project implements a file uploader cog for the Red Discord Bot, allowing users to upload files that remain private until a specified date. Users can extend the privacy duration or let the file be posted to a channel if the time expires.
+This project implements an Exposure Countdown cog for the Red Discord Bot, allowing users to upload files that remain private until a specified date. Users can extend the privacy duration or let the file be posted to a channel if the time expires.
 
 ## Features
 
@@ -10,20 +10,19 @@ This project implements a file uploader cog for the Red Discord Bot, allowing us
 
 ## Setup Instructions
 
-1. Clone the repository:
+1. Add the repo:
    ```
-   git clone https://github.com/yourusername/redbot-cog.git
-   cd redbot-cog
+   [p]repo add JenCogs https://github.com/jenerative/JenCogs
    ```
 
-2. Install the required dependencies:
+2. Install the cog:
    ```
-   pip install -r requirements.txt
+   [p]cog install JenCogs ExposureCountdown
    ```
 
 3. Load the cog into your Red Discord Bot:
    ```
-   [p]load file_uploader
+   [p]load ExposureCountdown
    ```
 
 ## Usage
@@ -44,20 +43,6 @@ This project implements a file uploader cog for the Red Discord Bot, allowing us
 
 - **Check Expiry**
   - Command: Automatically checks if the file's privacy duration has expired and posts it to the designated channel.
-
-## File Structure
-
-```
-redbot-cog
-├── cogs
-│   └── file_uploader
-│       ├── __init__.py
-│       ├── file_uploader.py
-│       └── data
-│           └── files.json
-├── requirements.txt
-└── README.md
-```
 
 ## Contributing
 
