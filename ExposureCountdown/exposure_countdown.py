@@ -1,7 +1,7 @@
 import datetime
 from discord.ext import commands, tasks
 
-class ExposureCountdownCog(commands.Cog):
+class ExposureCountdown(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.files = {}  # Dictionary to store file metadata
@@ -60,4 +60,4 @@ class ExposureCountdownCog(commands.Cog):
         await self.bot.wait_until_ready()
 
 def setup(bot):
-    bot.add_cog(ExposureCountdownCog(bot))
+    bot.add_cog(ExposureCountdown(bot))

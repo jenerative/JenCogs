@@ -1,8 +1,8 @@
-# This file initializes the file uploader cog. It may contain setup functions to load the cog into the Red Discord Bot.
+# This file initializes the ExposureCountdown cog. It may contain setup functions to load the cog into the Red Discord Bot.
 
 from redbot.core import commands
 
-class ExposureCountdownCog(commands.Cog):
+class ExposureCountdown(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
@@ -26,4 +26,4 @@ class ExposureCountdownCog(commands.Cog):
         pass
 
 def setup(bot):
-    bot.add_cog(ExposureCountdownCog(bot))
+    bot.add_cog(ExposureCountdown(bot))
