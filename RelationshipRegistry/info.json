@@ -1,0 +1,10 @@
+{
+      "author": [ "Jen (@jenerative)" ],
+      "short" : "Relationship Registry",
+      "description" : "Made for Miso Soup server by Jen. Lets users set a relationship with another user and it'll be logged in a channel.",
+      "name" : "RelationshipRegistry",
+      "requirements": ["tabulate"],
+      "tags" : ["games"],
+      "install_msg" : "Thank you for installing RelationshipRegistry. Made by @jenerative.",
+      "end_user_data_statement": "This cog stores discord IDs as needed for operation."
+  }
