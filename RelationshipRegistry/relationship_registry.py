@@ -30,7 +30,7 @@ class RelationshipRegistry(commands.Cog):
 
         if self.channel_id:
             channel = self.bot.get_channel(self.channel_id)
-            log_message = await channel.send(f"{ctx.author.mention} has set a relationship with {user.mention}: **{relationship_type}**.")
+            log_message = await channel.send(f"{ctx.author.mention} has set a relationship with {user.mention} as {relationship_type}.")
             self.relationships[author_id][user_id] = {
                 'relationship_type': relationship_type,
                 'log_message_id': log_message.id
@@ -81,6 +81,18 @@ class RelationshipRegistry(commands.Cog):
 
                 del self.relationships[author_id][user_id]
                 await ctx.send(f"Relationship with {user.mention} removed.")
+            elif user_id in self.relationships and author_id in self.relationships[user_id]:
+                log_message_id = self.relationships[user_id][author_id]['log_message_id']
+                if log_message_id and self.channel_id:
+                    channel = self.bot.get_channel(self.channel_id)
+                    try:
+                        log_message = await channel.fetch_message(log_message_id)
+                        await log_message.delete()
+                    except discord.NotFound:
+                        pass
+
+                del self.relationships[user_id][author_id]
+                await ctx.send(f"Relationship with {ctx.author.mention} removed.")
             else:
                 await ctx.send(f"No relationship found with {user.mention}.")
 
