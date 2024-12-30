@@ -44,25 +44,45 @@ class RelationshipRegistry(commands.Cog):
         await ctx.send(f"Relationship with {user.mention} set as {relationship_type}.")
 
     @commands.command(name="relationshipremove")
-    async def relationship_remove(self, ctx, user: discord.User):
-        """Remove a relationship with another user."""
+    async def relationship_remove(self, ctx, user: discord.User = None):
+        """Remove a relationship with another user or all relationships."""
         author_id = ctx.author.id
-        user_id = user.id
 
-        if author_id in self.relationships and user_id in self.relationships[author_id]:
-            log_message_id = self.relationships[author_id][user_id]['log_message_id']
-            if log_message_id and self.channel_id:
-                channel = self.bot.get_channel(self.channel_id)
-                try:
-                    log_message = await channel.fetch_message(log_message_id)
-                    await log_message.delete()
-                except discord.NotFound:
-                    pass
+        if user is None:
+            await ctx.send("Please mention a user or use 'all' to remove all relationships.")
+            return
 
-            del self.relationships[author_id][user_id]
-            await ctx.send(f"Relationship with {user.mention} removed.")
+        if user == "all":
+            if author_id in self.relationships:
+                for user_id, relationship in self.relationships[author_id].items():
+                    log_message_id = relationship['log_message_id']
+                    if log_message_id and self.channel_id:
+                        channel = self.bot.get_channel(self.channel_id)
+                        try:
+                            log_message = await channel.fetch_message(log_message_id)
+                            await log_message.delete()
+                        except discord.NotFound:
+                            pass
+                del self.relationships[author_id]
+                await ctx.send("All relationships removed.")
+            else:
+                await ctx.send("You have no relationships to remove.")
         else:
-            await ctx.send(f"No relationship found with {user.mention}.")
+            user_id = user.id
+            if author_id in self.relationships and user_id in self.relationships[author_id]:
+                log_message_id = self.relationships[author_id][user_id]['log_message_id']
+                if log_message_id and self.channel_id:
+                    channel = self.bot.get_channel(self.channel_id)
+                    try:
+                        log_message = await channel.fetch_message(log_message_id)
+                        await log_message.delete()
+                    except discord.NotFound:
+                        pass
+
+                del self.relationships[author_id][user_id]
+                await ctx.send(f"Relationship with {user.mention} removed.")
+            else:
+                await ctx.send(f"No relationship found with {user.mention}.")
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
