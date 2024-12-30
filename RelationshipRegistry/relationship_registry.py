@@ -12,15 +12,15 @@ class RelationshipRegistry(commands.Cog):
         self.user_leave_times = {}  # Dictionary to store user leave times
         self.check_inactive_users.start()  # Start the task to check for inactive users
 
-    @commands.command()
+    @commands.command(name="relationshipchannel")
     @commands.has_permissions(administrator=True)
     async def set_relationship_channel(self, ctx, channel_id: int):
         """Set the channel ID for logging relationships."""
         self.channel_id = channel_id
         await ctx.send(f"Relationship log channel ID set to {channel_id}.")
 
-    @commands.command()
-    async def set_relationship(self, ctx, user: discord.User, relationship_type: str):
+    @commands.command(name="relationshipset")
+    async def relationship_set(self, ctx, user: discord.User, relationship_type: str):
         """Set a relationship with another user."""
         author_id = ctx.author.id
         user_id = user.id
@@ -43,8 +43,8 @@ class RelationshipRegistry(commands.Cog):
 
         await ctx.send(f"Relationship with {user.mention} set as {relationship_type}.")
 
-    @commands.command()
-    async def remove_relationship(self, ctx, user: discord.User):
+    @commands.command(name="relationshipremove")
+    async def relationship_remove(self, ctx, user: discord.User):
         """Remove a relationship with another user."""
         author_id = ctx.author.id
         user_id = user.id
