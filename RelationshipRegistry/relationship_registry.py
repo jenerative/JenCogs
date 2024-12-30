@@ -30,7 +30,7 @@ class RelationshipRegistry(commands.Cog):
 
         if self.channel_id:
             channel = self.bot.get_channel(self.channel_id)
-            log_message = await channel.send(f"{ctx.author.mention} has set a relationship with {user.mention} as {relationship_type}.")
+            log_message = await channel.send(f"{ctx.author.mention} has set a relationship with {user.mention} as their {relationship_type}.")
             self.relationships[author_id][user_id] = {
                 'relationship_type': relationship_type,
                 'log_message_id': log_message.id
