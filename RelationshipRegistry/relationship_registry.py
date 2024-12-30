@@ -3,6 +3,7 @@ from discord.ext import commands
 
 class RelationshipRegistry(commands.Cog):
     def __init__(self, bot):
+        super().__init__()
         self.bot = bot
         self.relationships = {}  # Dictionary to store relationships
         self.channel_id = None  # Channel ID for logging relationships
