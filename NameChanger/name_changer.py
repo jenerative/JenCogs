@@ -9,6 +9,7 @@ class NameChanger(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890)
         default_guild = {
             "allowed_role_name": "Nickname Changer",
+            "target_role_name": "Member",
             "locked_nicknames": {}
         }
         self.config.register_guild(**default_guild)
@@ -19,6 +20,11 @@ class NameChanger(commands.Cog):
         role = discord.utils.find(lambda r: r.name == role_name, ctx.author.roles)
         return role is not None
 
+    async def has_target_role(ctx, member):
+        target_role_name = await ctx.cog.config.guild(ctx.guild).target_role_name()
+        target_role = discord.utils.find(lambda r: r.name == target_role_name, member.roles)
+        return target_role is not None
+
     @commands.command(name="namechangerrole")
     @commands.has_permissions(administrator=True)
     async def set_nickname_changer_role(self, ctx, *, role_name: str):
@@ -26,10 +32,21 @@ class NameChanger(commands.Cog):
         await self.config.guild(ctx.guild).allowed_role_name.set(role_name)
         await ctx.send(f"Role name for changing nicknames set to {role_name}.")
 
+    @commands.command(name="targetrole")
+    @commands.has_permissions(administrator=True)
+    async def set_target_role(self, ctx, *, role_name: str):
+        """Set the role name that can have their nicknames changed."""
+        await self.config.guild(ctx.guild).target_role_name.set(role_name)
+        await ctx.send(f"Target role name set to {role_name}.")
+
     @commands.command(name="dollname")
     @commands.check(has_allowed_role)
     async def change_nick(self, ctx, member: discord.Member, new_nickname: str, duration: int = None):
         """Change the nickname of a member and optionally lock it for a duration (up to 48 hours)."""
+        if not await self.has_target_role(ctx, member):
+            await ctx.send(f"{member.mention} does not have the required role to change their nickname.")
+            return
+
         old_nickname = member.display_name
         await member.edit(nick=new_nickname)
         await ctx.send(f"Renamed {old_nickname} to {new_nickname}.")
@@ -51,6 +68,10 @@ class NameChanger(commands.Cog):
     @commands.check(has_allowed_role)
     async def reset_nick(self, ctx, member: discord.Member):
         """Reset the nickname of a member."""
+        if not await self.has_target_role(ctx, member):
+            await ctx.send(f"{member.mention} does not have the required role to reset their nickname.")
+            return
+
         old_nickname = member.display_name
         await member.edit(nick=None)
         await ctx.send(f"Reset nickname for {old_nickname}.")
