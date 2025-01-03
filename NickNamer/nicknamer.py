@@ -8,9 +8,7 @@ import logging
 
 log = logging.getLogger("red.JenCogs.nicknamer")
 
-
 _ = Translator("NickNamer", __file__)
-
 
 @cog_i18n(_)
 class NickNamer(commands.Cog):
@@ -54,6 +52,7 @@ class NickNamer(commands.Cog):
             "dm": False,
             "frozen": [],
             "active": [],
+            "role": None,
         }
         self.config.register_guild(**standard)
         self._rename_dollnames.start()
@@ -287,11 +286,14 @@ class NickNamer(commands.Cog):
         ctx,
         user: discord.Member,
         duration: commands.TimedeltaConverter,
-        nickname: str,
-        *,
-        reason: Optional[str] = "User has been temporarily renamed.",
+        nickname: str
     ):
-        """Temporarily rename a user.\n**IMPORTANT**: For better performance, temporary nicknames are checked in a 10 minute intervall."""
+        """Temporarily rename a user.\n**IMPORTANT**: For better performance, temporary nicknames are checked in a 10 minute interval."""
+        role_id = await self.config.guild(ctx.guild).role()
+        role = discord.utils.get(ctx.guild.roles, id=role_id)
+        if role not in ctx.author.roles:
+            return await ctx.send(_("You do not have the required role to use this command."))
+
         valid_nick_check = self.valid_nickname(nickname=nickname)
         if not valid_nick_check:
             return await ctx.send(
@@ -304,7 +306,7 @@ class NickNamer(commands.Cog):
             change_end = datetime.utcnow() + duration
             async with self.config.guild(ctx.guild).active() as active:
                 active.append((user.id, oldnick, change_end.timestamp()))
-            if self.config.guild(ctx.guild).modlog():
+            if await self.config.guild(ctx.guild).modlog():
                 await modlog.create_case(
                     self.bot,
                     ctx.guild,
@@ -312,7 +314,7 @@ class NickNamer(commands.Cog):
                     "doll",
                     user,
                     moderator=ctx.author,
-                    reason=reason,
+                    reason="User has been temporarily renamed.",
                     channel=ctx.channel,
                 )
             if await self.config.guild(ctx.guild).dm():
@@ -356,6 +358,12 @@ class NickNamer(commands.Cog):
         await ctx.send(
             _("Sending a DM set to {true_or_false}.").format(true_or_false=true_or_false)
         )
+
+    @nickset.command()
+    async def role(self, ctx, role: discord.Role):
+        """Set the role required to use the doll command."""
+        await self.config.guild(ctx.guild).role.set(role.id)
+        await ctx.send(_("Role set to {role.name}.").format(role=role))
 
     @checks.admin()
     @commands.command()
