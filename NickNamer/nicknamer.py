@@ -311,7 +311,7 @@ class NickNamer(commands.Cog):
                     self.bot,
                     ctx.guild,
                     datetime.now(),
-                    "doll",
+                    "nickname_change",
                     user,
                     moderator=ctx.author,
                     reason="User has been temporarily renamed.",
