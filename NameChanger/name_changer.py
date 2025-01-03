@@ -16,28 +16,28 @@ class NameChanger(commands.Cog):
         self.check_locked_nicknames.start()
 
     async def has_allowed_role(ctx):
-        role_name = await ctx.cog.config.guild(ctx.guild).allowed_role_name()
-        role = discord.utils.find(lambda r: r.name == role_name, ctx.author.roles)
+        role_id = await ctx.cog.config.guild(ctx.guild).allowed_role_name()
+        role = discord.utils.get(ctx.author.roles, id=role_id)
         return role is not None
 
     async def has_target_role(self, ctx, member):
-        target_role_name = await self.config.guild(ctx.guild).target_role_name()
-        target_role = discord.utils.find(lambda r: r.name == target_role_name, member.roles)
+        target_role_id = await self.config.guild(ctx.guild).target_role_name()
+        target_role = discord.utils.get(member.roles, id=target_role_id)
         return target_role is not None
 
     @commands.command(name="namechangerrole")
     @commands.has_permissions(administrator=True)
-    async def set_nickname_changer_role(self, ctx, *, role_name: str):
-        """Set the role name that can change nicknames."""
-        await self.config.guild(ctx.guild).allowed_role_name.set(role_name)
-        await ctx.send(f"Role name for changing nicknames set to {role_name}.")
+    async def set_nickname_changer_role(self, ctx, role: discord.Role):
+        """Set the role that can change nicknames."""
+        await self.config.guild(ctx.guild).allowed_role_name.set(role.id)
+        await ctx.send(f"Role for changing nicknames set to {role.mention}.")
 
     @commands.command(name="targetrole")
     @commands.has_permissions(administrator=True)
-    async def set_target_role(self, ctx, *, role_name: str):
-        """Set the role name that can have their nicknames changed."""
-        await self.config.guild(ctx.guild).target_role_name.set(role_name)
-        await ctx.send(f"Target role name set to {role_name}.")
+    async def set_target_role(self, ctx, role: discord.Role):
+        """Set the role that can have their nicknames changed."""
+        await self.config.guild(ctx.guild).target_role_name.set(role.id)
+        await ctx.send(f"Target role set to {role.mention}.")
 
     @commands.command(name="dollname")
     @commands.check(has_allowed_role)
@@ -48,8 +48,12 @@ class NameChanger(commands.Cog):
             return
 
         old_nickname = member.display_name
-        await member.edit(nick=new_nickname)
-        await ctx.send(f"Renamed {old_nickname} to {new_nickname}.")
+        try:
+            await member.edit(nick=new_nickname)
+            await ctx.send(f"Renamed {old_nickname} to {new_nickname}.")
+        except discord.Forbidden:
+            await ctx.send("I do not have permission to change the nickname of this member.")
+            return
 
         if duration is not None:
             if duration > 48 * 60:
@@ -73,8 +77,12 @@ class NameChanger(commands.Cog):
             return
 
         old_nickname = member.display_name
-        await member.edit(nick=None)
-        await ctx.send(f"Reset nickname for {old_nickname}.")
+        try:
+            await member.edit(nick=None)
+            await ctx.send(f"Reset nickname for {old_nickname}.")
+        except discord.Forbidden:
+            await ctx.send("I do not have permission to reset the nickname of this member.")
+            return
 
         async with self.config.guild(ctx.guild).locked_nicknames() as locked_nicknames:
             if str(member.id) in locked_nicknames:
@@ -88,13 +96,18 @@ class NameChanger(commands.Cog):
             for guild_id, guild_data in all_guilds.items():
                 locked_nicknames = guild_data.get("locked_nicknames", {})
                 for member_id, data in list(locked_nicknames.items()):
-                    if data["end_time"] <= now:
-                        guild = self.bot.get_guild(int(guild_id))
-                        if guild:
-                            member = guild.get_member(int(member_id))
-                            if member:
+                    guild = self.bot.get_guild(int(guild_id))
+                    if guild:
+                        member = guild.get_member(int(member_id))
+                        if member:
+                            if data["end_time"] <= now:
                                 await member.edit(nick=None)
-                        del locked_nicknames[member_id]
+                                del locked_nicknames[member_id]
+                            elif member.display_name != data["nickname"]:
+                                try:
+                                    await member.edit(nick=data["nickname"])
+                                except discord.Forbidden:
+                                    pass
 
     @check_locked_nicknames.before_loop
     async def before_check_locked_nicknames(self):
