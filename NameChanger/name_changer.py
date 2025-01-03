@@ -41,7 +41,7 @@ class NameChanger(commands.Cog):
 
     @commands.command(name="dollname")
     @commands.check(has_allowed_role)
-    async def change_nick(self, ctx, member: discord.Member, new_nickname: str, duration: int = None):
+    async def change_nick(self, ctx, member: discord.Member, duration: int = None, *, new_nickname: str):
         """Change the nickname of a member and optionally lock it for a duration (up to 48 hours)."""
         if not await self.has_target_role(ctx, member):
             await ctx.send(f"{member.mention} does not have the required role to change their nickname.")
