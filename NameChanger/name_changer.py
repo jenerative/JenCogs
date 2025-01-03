@@ -106,8 +106,9 @@ class NameChanger(commands.Cog):
                             elif member.display_name != data["nickname"]:
                                 try:
                                     await member.edit(nick=data["nickname"])
+                                    print(f"Reset nickname for {member.display_name} to {data['nickname']}")
                                 except discord.Forbidden:
-                                    pass
+                                    print(f"Failed to reset nickname for {member.display_name} due to missing permissions")
 
     @check_locked_nicknames.before_loop
     async def before_check_locked_nicknames(self):
