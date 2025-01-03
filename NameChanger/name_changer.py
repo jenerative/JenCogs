@@ -103,12 +103,14 @@ class NameChanger(commands.Cog):
                             if data["end_time"] <= now:
                                 await member.edit(nick=None)
                                 del locked_nicknames[member_id]
-                            elif member.display_name != data["nickname"]:
-                                try:
-                                    await member.edit(nick=data["nickname"])
-                                    print(f"Reset nickname for {member.display_name} to {data['nickname']}")
-                                except discord.Forbidden:
-                                    print(f"Failed to reset nickname for {member.display_name} due to missing permissions")
+                                print(f"Unlocked nickname for {member.display_name}")
+                            if data["end_time"] >= now:
+                                if member.display_name != data["nickname"]:
+                                    try:
+                                        await member.edit(nick=data["nickname"])
+                                        print(f"Reset nickname for {member.display_name} to {data['nickname']}")
+                                    except discord.Forbidden:
+                                        print(f"Failed to reset nickname for {member.display_name} due to missing permissions")
 
     @check_locked_nicknames.before_loop
     async def before_check_locked_nicknames(self):
