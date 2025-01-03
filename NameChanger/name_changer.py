@@ -20,8 +20,8 @@ class NameChanger(commands.Cog):
         role = discord.utils.find(lambda r: r.name == role_name, ctx.author.roles)
         return role is not None
 
-    async def has_target_role(ctx, member):
-        target_role_name = await ctx.cog.config.guild(ctx.guild).target_role_name()
+    async def has_target_role(self, ctx, member):
+        target_role_name = await self.config.guild(ctx.guild).target_role_name()
         target_role = discord.utils.find(lambda r: r.name == target_role_name, member.roles)
         return target_role is not None
 
