@@ -1,0 +1,10 @@
+{
+    "author": ["jenerative"],
+    "description": "A cog that lets people add a reaction to anyone's messages and get a link in their DMs to the user's last post in a configurable channel.",
+    "install_msg": "Thank you for installing ReactionLinker. Use `[p]reactionlinkerset` to configure the cog.",
+    "short": "Reaction Linker",
+    "requirements": [],
+    "tags": ["reaction", "link", "message"],
+    "type": "COG",
+    "end_user_data_statement": "This cog does not store any end user data."
+}
