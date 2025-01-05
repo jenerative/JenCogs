@@ -55,10 +55,15 @@ class ReactionLinker(commands.Cog):
             if msg.author == message.author:
                 link = msg.jump_url
                 try:
-                    await user.send(f"Here is the link to {message.author.mention}'s last post in {channel.mention}: {link}")
+                    await user.send(f"Here is {message.author.mention}'s post in {channel.mention}: {link}")
                 except discord.Forbidden:
                     pass
                 break
+
+        try:
+            await reaction.remove(user)
+        except discord.Forbidden:
+            pass
 
 def setup(bot):
     bot.add_cog(ReactionLinker(bot))
