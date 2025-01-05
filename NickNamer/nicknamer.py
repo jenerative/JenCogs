@@ -98,45 +98,30 @@ class NickNamer(commands.Cog):
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
         if before.nick != after.nick:
-            settings = await self.config.guild(after.guild).frozen()
-            for e in settings:
-                if after.id in e:
-                    if after.nick != e[1]:
+            async with self.config.guild(after.guild).active() as active:
+                for entry in active:
+                    user_id, old_nick, end_time = entry
+                    if user_id == after.id and datetime.utcnow().timestamp() < end_time:
                         try:
-                            await after.edit(nick=e[1], reason="Nickname frozen.")
-                        except discord.errors.Forbidden:
-                            log.info(
-                                f"Missing permissions to change {before.nick} ({before.id}) in {before.guild.id}, removing freeze"
-                            )
-                            async with self.config.guild(after.guild).frozen() as frozen:
-                                for e in frozen:
-                                    if e[0] == before.id:
-                                        frozen.remove(e)
+                            await after.edit(nick=old_nick)
+                        except discord.Forbidden:
+                            pass
+                        break
 
     @tasks.loop(minutes=10)
     async def _rename_dollnames(self):
         for guild in self.bot.guilds:
-            async with self.config.guild(guild).all() as settings:
-                if not settings["active"]:
-                    continue
-                else:
-                    for e in settings["active"]:
-                        expiry_time = datetime.utcfromtimestamp(e[2])
-                        if datetime.utcnow() > expiry_time:
-                            if guild.get_member(e[0]):
-                                await guild.get_member(e[0]).edit(
-                                    nick=e[1], reason=_("Temporary nickname expired.")
-                                )
-                            settings["active"].remove(e)
-                            if settings["dm"]:
-                                try:
-                                    await guild.get_member(e[0]).send(
-                                        _(
-                                            "Your nickname in ``{guildname}`` has been reset to your original nickname."
-                                        ).format(guildname=guild.name)
-                                    )
-                                except:
-                                    pass
+            async with self.config.guild(guild).active() as active:
+                for entry in active[:]:
+                    user_id, old_nick, end_time = entry
+                    if datetime.utcnow().timestamp() >= end_time:
+                        member = guild.get_member(user_id)
+                        if member:
+                            try:
+                                await member.edit(nick=old_nick)
+                            except discord.Forbidden:
+                                pass
+                        active.remove(entry)
 
     @checks.mod()
     @commands.command()
