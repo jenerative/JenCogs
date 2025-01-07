@@ -193,7 +193,6 @@ class MisoSoup(commands.Cog):
                     inline=False
                 )
             await ctx.send(embed=embed)
-            await ctx.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(MisoSoup(bot))
