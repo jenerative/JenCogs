@@ -1,4 +1,4 @@
-from .nicknamer import NickNamer
+from .misosoup import MisoSoup
 from pathlib import Path
 import json
 
@@ -7,6 +7,6 @@ with open(Path(__file__).parent / "info.json") as fp:
 
 
 async def setup(bot):
-    cog = NickNamer(bot)
+    cog = MisoSoup(bot)
     await cog.initialize()
     await bot.add_cog(cog)

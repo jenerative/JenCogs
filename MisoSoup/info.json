@@ -1,0 +1,10 @@
+{
+    "author": [ "Jen (@jenerative)" ],
+    "short" : "Multipurpose Cog for Miso Soup",
+    "description" : "Made for Miso Soup server by Jen. Contains various utility commands.",
+    "name" : "MisoSoup",
+    "requirements": ["tabulate"],
+    "tags" : ["utility"],
+    "install_msg" : "Thank you for installing MisoSoup. Made by @jenerative.",
+    "end_user_data_statement": "This cog stores discord IDs as needed for operation."
+}
