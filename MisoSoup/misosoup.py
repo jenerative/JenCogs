@@ -176,5 +176,5 @@ class MisoSoup(commands.Cog):
             privileges[privilege]["expires"][str(ctx.author.id)] = expire_time.timestamp()
         await ctx.send(f"You have successfully bought the '{privilege}' privilege and have been assigned the {role.name} role for {duration} seconds.")
 
-def setup(bot):
-    bot.add_cog(MisoSoup(bot))
+async def setup(bot):
+    await bot.add_cog(MisoSoup(bot))
