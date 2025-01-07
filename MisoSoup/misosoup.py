@@ -16,7 +16,8 @@ class MisoSoup(commands.Cog):
                 "NameChanges": {
                     "cost": 100,
                     "role": None,
-                    "duration": 86400  # Default duration in seconds (24 hours)
+                    "duration": 86400,  # Default duration in seconds (24 hours)
+                    "description": "Allows changing your nickname."
                 }
             }
         }
@@ -94,7 +95,7 @@ class MisoSoup(commands.Cog):
         except discord.Forbidden:
             await ctx.send("I do not have permission to change the nickname of this member.")
 
-    @doll.group()
+    @doll.group(aliases=["privilege"])
     async def privileges(self, ctx):
         """Commands for managing privileges"""
         pass
@@ -168,6 +169,29 @@ class MisoSoup(commands.Cog):
                 privileges[privilege]["expires"] = {}
             privileges[privilege]["expires"][str(ctx.author.id)] = expire_time.timestamp()
         await ctx.send(f"You have successfully bought the '{privilege}' privilege and have been assigned the {role.name} role for {duration} seconds.")
+
+    @privileges.command()
+    async def list(self, ctx):
+        """List all privileges with their description, cost, and duration."""
+        guild = ctx.guild
+        async with self.config.guild(guild).privileges() as privileges:
+            if not privileges:
+                return await ctx.send("There are no privileges set.")
+            embed = discord.Embed(title="Privileges", color=discord.Color.blue())
+            for privilege, data in privileges.items():
+                role = guild.get_role(data["role"])
+                role_name = role.name if role else "Not set"
+                embed.add_field(
+                    name=privilege,
+                    value=(
+                        f"**Description:** {data.get('description', 'No description')}\n"
+                        f"**Cost:** {data['cost']}\n"
+                        f"**Role:** {role_name}\n"
+                        f"**Duration:** {data['duration']} seconds"
+                    ),
+                    inline=False
+                )
+            await ctx.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(MisoSoup(bot))
