@@ -16,7 +16,7 @@ class ReactionLinker(commands.Cog):
     @commands.group()
     @checks.admin()
     async def reactionlinkerset(self, ctx):
-        """Settings for ReactionLinker"""
+        """Make a reaction link to a user's last post."""
         pass
 
     @reactionlinkerset.command()
