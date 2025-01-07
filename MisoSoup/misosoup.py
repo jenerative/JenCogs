@@ -2,6 +2,8 @@ from redbot.core import commands, Config, checks, bank
 import discord
 from datetime import datetime, timedelta
 from discord.ext import tasks
+# import emoji
+import re
 
 class MisoSoup(commands.Cog):
     """MisoSoup"""
@@ -25,13 +27,16 @@ class MisoSoup(commands.Cog):
                     "duration": 86400,  # Default duration in seconds (24 hours)
                     "description": "Allows curse words."
                 }
-            }
+            },
+            "emoji_only_mode": {}
         }
         self.config.register_guild(**default_guild)
         self._check_privileges.start()
+        self._check_emoji_only_mode.start()
 
     def cog_unload(self):
         self._check_privileges.cancel()
+        self._check_emoji_only_mode.cancel()
 
     @tasks.loop(minutes=10)
     async def _check_privileges(self):
@@ -49,6 +54,14 @@ class MisoSoup(commands.Cog):
                                     except discord.Forbidden:
                                         pass
                                 del data["expires"][user_id]
+
+    @tasks.loop(minutes=1)
+    async def _check_emoji_only_mode(self):
+        for guild in self.bot.guilds:
+            async with self.config.guild(guild).emoji_only_mode() as emoji_only_mode:
+                for user_id, expire_time in list(emoji_only_mode.items()):
+                    if datetime.utcnow().timestamp() >= expire_time:
+                        del emoji_only_mode[user_id]
 
     @commands.group()
     @commands.has_permissions(administrator=True)
@@ -100,6 +113,39 @@ class MisoSoup(commands.Cog):
             await ctx.send(f"Dollname for {member.mention} has been changed to {nickname}.")
         except discord.Forbidden:
             await ctx.send("I do not have permission to change the dollname of this member.")
+
+    @doll.command()
+    async def gag(self, ctx, member: discord.Member, minutes: int):
+        """Set a user to emoji only mode for a specified time."""
+        guild = ctx.guild
+        sir_role = guild.get_role(await self.config.guild(guild).sir_role())
+        doll_role = guild.get_role(await self.config.guild(guild).doll_role())
+
+        if sir_role in ctx.author.roles:
+            if doll_role in member.roles:
+                async with self.config.guild(guild).emoji_only_mode() as emoji_only_mode:
+                    emoji_only_mode[member.id] = datetime.utcnow().timestamp() + minutes * 60
+                    await ctx.send(f"{member.mention} has been set to emoji only mode for {minutes} minutes.")
+            else:
+                await ctx.send(f"{member.mention} does not have the doll role.")
+        else:
+            await ctx.send("You do not have the required role to use this command.")
+
+    @doll.command()
+    async def ungag(self, ctx, member: discord.Member):
+        """Remove emoji only mode from a user."""
+        guild = ctx.guild
+        sir_role = guild.get_role(await self.config.guild(guild).sir_role())
+
+        if sir_role in ctx.author.roles:
+            async with self.config.guild(guild).emoji_only_mode() as emoji_only_mode:
+                if member.id in emoji_only_mode:
+                    del emoji_only_mode[member.id]
+                    await ctx.send(f"{member.mention} has been removed from emoji only mode.")
+                else:
+                    await ctx.send(f"{member.mention} is not in emoji only mode.")
+        else:
+            await ctx.send("You do not have the required role to use this command.")
 
     @doll.group(aliases=["privilege"])
     async def privileges(self, ctx):
@@ -199,6 +245,27 @@ class MisoSoup(commands.Cog):
                     inline=False
                 )
             await ctx.send(embed=embed)
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.author.bot:
+            return
+
+        guild = message.guild
+        if guild:
+            async with self.config.guild(guild).emoji_only_mode() as emoji_only_mode:
+                if message.author.id in emoji_only_mode:
+                    if not self.is_emoji_only(message.content):
+                        try:
+                            await message.delete()
+                        except discord.Forbidden:
+                            pass
+
+    def is_emoji_only(self, content):
+        custom_emoji_pattern = r'<a?:\w+:\d+>'
+        unicode_emoji_pattern = r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F\U0001F780-\U0001F7FF\U0001F800-\U0001F8FF\U0001F900-\U0001F9FF\U0001FA00-\U0001FA6F\U0001FA70-\U0001FAFF\U00002702-\U000027B0\U000024C2-\U0001F251]'
+        combined_pattern = f'^{custom_emoji_pattern}|{unicode_emoji_pattern}+$'
+        return bool(re.fullmatch(combined_pattern, content))
 
 async def setup(bot):
     await bot.add_cog(MisoSoup(bot))
