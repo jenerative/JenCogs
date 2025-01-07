@@ -14,10 +14,16 @@ class MisoSoup(commands.Cog):
             "doll_role": None,
             "privileges": {
                 "NameChanges": {
+                    "cost": 200,
+                    "role": None,
+                    "duration": 600,  # Default duration in seconds (10 minutes)
+                    "description": "Allows changing your nickname."
+                },
+                "Cursing": {
                     "cost": 100,
                     "role": None,
                     "duration": 86400,  # Default duration in seconds (24 hours)
-                    "description": "Allows changing your nickname."
+                    "description": "Allows curse words."
                 }
             }
         }
@@ -64,12 +70,12 @@ class MisoSoup(commands.Cog):
 
     @commands.group()
     async def doll(self, ctx):
-        """Commands for managing doll roles"""
+        """Commands for playing with the dolls."""
         pass
 
     @doll.command()
     async def name(self, ctx, member: discord.Member, *, nickname: str):
-        """Change the nickname of a member with the doll role."""
+        """Change the name of a doll."""
         guild = ctx.guild
         sir_role_id = await self.config.guild(guild).sir_role()
         doll_role_id = await self.config.guild(guild).doll_role()
@@ -84,16 +90,16 @@ class MisoSoup(commands.Cog):
             return await ctx.send("Roles for 'sir' and 'doll' are not valid.")
 
         if sir_role not in ctx.author.roles:
-            return await ctx.send("You do not have the required role to use this command.")
+            return await ctx.send("You must be a Sir to use this command.")
 
         if doll_role not in member.roles:
             return await ctx.send("The specified member does not have the doll role.")
 
         try:
             await member.edit(nick=nickname)
-            await ctx.send(f"Nickname for {member.mention} has been changed to {nickname}.")
+            await ctx.send(f"Dollname for {member.mention} has been changed to {nickname}.")
         except discord.Forbidden:
-            await ctx.send("I do not have permission to change the nickname of this member.")
+            await ctx.send("I do not have permission to change the dollname of this member.")
 
     @doll.group(aliases=["privilege"])
     async def privileges(self, ctx):
@@ -132,7 +138,7 @@ class MisoSoup(commands.Cog):
 
     @privileges.command()
     async def buy(self, ctx, privilege: str):
-        """Buy a privilege."""
+        """~~Buy~~ Rent a privilege."""
         guild = ctx.guild
         doll_role_id = await self.config.guild(guild).doll_role()
         doll_role = guild.get_role(doll_role_id)
@@ -141,7 +147,7 @@ class MisoSoup(commands.Cog):
             return await ctx.send("Role for 'doll' is not valid.")
 
         if doll_role not in ctx.author.roles:
-            return await ctx.send("You do not have the required role to buy privileges.")
+            return await ctx.send("Only fuckdolls need to buy (rent) privileges.")
 
         async with self.config.guild(guild).privileges() as privileges:
             if privilege not in privileges:
@@ -168,11 +174,11 @@ class MisoSoup(commands.Cog):
             if "expires" not in privileges[privilege]:
                 privileges[privilege]["expires"] = {}
             privileges[privilege]["expires"][str(ctx.author.id)] = expire_time.timestamp()
-        await ctx.send(f"You have successfully bought the '{privilege}' privilege and have been assigned the {role.name} role for {duration} seconds.")
+        await ctx.send(f"You have successfully rented the '{privilege}' for {duration} seconds.")
 
     @privileges.command()
     async def list(self, ctx):
-        """List all privileges with their description, cost, and duration."""
+        """List all privileges with desc, cost, and duration."""
         guild = ctx.guild
         async with self.config.guild(guild).privileges() as privileges:
             if not privileges:
