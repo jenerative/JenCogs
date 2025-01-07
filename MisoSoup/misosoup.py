@@ -180,17 +180,19 @@ class MisoSoup(commands.Cog):
             embed = discord.Embed(title="Privileges", color=discord.Color.blue())
             for privilege, data in privileges.items():
                 role = guild.get_role(data["role"])
-                role_name = role.name if role else "Not set"
+                role_mention = role.mention if role else "Not set"
                 embed.add_field(
                     name=privilege,
                     value=(
                         f"**Description:** {data.get('description', 'No description')}\n"
                         f"**Cost:** {data['cost']}\n"
-                        f"**Role:** {role_name}\n"
-                        f"**Duration:** {data['duration']} seconds"
+                        f"**Role:** {role_mention}\n"
+                        f"**Duration:** {data['duration']} seconds\n"
+                        f"---------------------------------"
                     ),
                     inline=False
                 )
+            await ctx.send(embed=embed)
             await ctx.send(embed=embed)
 
 async def setup(bot):
