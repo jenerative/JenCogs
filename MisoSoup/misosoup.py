@@ -1,15 +1,8 @@
 from redbot.core import commands, Config, checks, bank
 import discord
-from redbot.core.i18n import Translator, cog_i18n
 from datetime import datetime, timedelta
 from discord.ext import tasks
-import logging
 
-log = logging.getLogger("red.JenCogs.misosoup")
-
-_ = Translator("MisoSoup", __file__)
-
-@cog_i18n(_)
 class MisoSoup(commands.Cog):
     """MisoSoup"""
 
