@@ -45,17 +45,17 @@ class MisoSoup(commands.Cog):
 
     @commands.group()
     @commands.has_permissions(administrator=True)
-    async def roleset(self, ctx):
+    async def misoroleset(self, ctx):
         """Settings for MisoSoup roles"""
         pass
 
-    @roleset.command()
+    @misoroleset.command()
     async def sir(self, ctx, role: discord.Role):
         """Set the role for 'sir' label."""
         await self.config.guild(ctx.guild).sir_role.set(role.id)
         await ctx.send(f"Role for 'sir' set to {role.name}")
 
-    @roleset.command()
+    @misoroleset.command()
     async def doll(self, ctx, role: discord.Role):
         """Set the role for 'doll' label."""
         await self.config.guild(ctx.guild).doll_role.set(role.id)
