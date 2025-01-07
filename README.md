@@ -15,16 +15,13 @@ ExposureCountdown is a cog that lets users upload a private file/link and set a 
 - Restart coundowns with command
 - Check calendar for countdowns ending soon
 
-### NickNamer
+### MisoSoup
 
-NickNamer is a cog that allows a configurable role to temporarily change other users' nicknames if they have another configurable role.
+Custom commands and fun things for the Miso Soup server. Viewer discretion is advised.
 
 #### Features
 
-- Temporarily rename a user with the `doll` command.
-- Automatically revert nicknames after a specified duration.
-- Revert nicknames if the user changes their nickname while under the effect of the `doll` command.
-- Configure settings such as the default nickname, modlog entries, and required roles.
+- Kinky stuff 😇
 
 ### ReactionLinker
 
