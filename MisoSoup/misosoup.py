@@ -17,14 +17,14 @@ class MisoSoup(commands.Cog):
                 "NameChanges": {
                     "cost": 200,
                     "role": None,
-                    "duration": 600,  # Default duration in seconds (10 minutes)
+                    "duration": 10,  # Default duration in minutes
                     "description": "Allows changing your nickname."
                 },
                 "Cursing": {
                     "cost": 100,
                     "role": None,
-                    "duration": 86400,  # Default duration in seconds (24 hours)
-                    "description": "Allows curse words."
+                    "duration": 1440,  # Default duration in minutes (24 hours)
+                    "description": "Allows use of curse words."
                 }
             },
             "emoji_only_mode": {}
@@ -109,7 +109,7 @@ class MisoSoup(commands.Cog):
 
         try:
             await member.edit(nick=nickname)
-            await ctx.send(f"Dollname for {member.mention} has been changed to {nickname}.")
+            await ctx.send(f"Dollname for {member.mention} has been changed.")
         except discord.Forbidden:
             await ctx.send("I do not have permission to change the dollname of this member.")
 
@@ -214,12 +214,12 @@ class MisoSoup(commands.Cog):
 
         await bank.withdraw_credits(ctx.author, cost)
         await ctx.author.add_roles(role)
-        expire_time = datetime.utcnow() + timedelta(seconds=duration)
+        expire_time = datetime.utcnow() + timedelta(seconds=duration * 60)
         async with self.config.guild(guild).privileges() as privileges:
             if "expires" not in privileges[privilege]:
                 privileges[privilege]["expires"] = {}
             privileges[privilege]["expires"][str(ctx.author.id)] = expire_time.timestamp()
-        await ctx.send(f"You have successfully rented the '{privilege}' for {duration} seconds.")
+        await ctx.send(f"You have successfully rented the '{privilege}' for {duration} minutes.")
 
     @privileges.command()
     async def list(self, ctx):
@@ -238,7 +238,7 @@ class MisoSoup(commands.Cog):
                         f"**Description:** {data.get('description', 'No description')}\n"
                         f"**Cost:** {data['cost']}\n"
                         f"**Role:** {role_mention}\n"
-                        f"**Duration:** {data['duration']} seconds\n"
+                        f"**Duration:** {data['duration']} minutes\n"
                         f"---------------------------------"
                     ),
                     inline=False
