@@ -1,7 +1,7 @@
-from redbot.core import commands, Config, checks, bank
-import discord
+from redbot.core import commands, Config, checks, bank # type: ignore
+import discord # type: ignore
 from datetime import datetime, timedelta
-from discord.ext import tasks
+from discord.ext import tasks # type: ignore
 import re
 
 class MisoSoup(commands.Cog):
@@ -27,15 +27,25 @@ class MisoSoup(commands.Cog):
                     "description": "Allows use of curse words."
                 }
             },
+            "benefits": {
+                "ExtraControl": {
+                    "cost": 500,
+                    "role": None,
+                    "duration": 10,  # Default duration in minutes
+                    "description": "Grants access to make extra rules/tasks for the opted-in dolls."
+                }
+            },
             "emoji_only_mode": {}
         }
         self.config.register_guild(**default_guild)
         self._check_privileges.start()
         self._check_emoji_only_mode.start()
+        self._check_benefits.start()
 
     def cog_unload(self):
         self._check_privileges.cancel()
         self._check_emoji_only_mode.cancel()
+        self._check_benefits.cancel()
 
     @tasks.loop(minutes=10)
     async def _check_privileges(self):
@@ -61,6 +71,23 @@ class MisoSoup(commands.Cog):
                 for user_id, expire_time in list(emoji_only_mode.items()):
                     if datetime.utcnow().timestamp() >= expire_time:
                         del emoji_only_mode[user_id]
+
+    @tasks.loop(minutes=10)
+    async def _check_benefits(self):
+        for guild in self.bot.guilds:
+            async with self.config.guild(guild).benefits() as benefits:
+                for benefit, data in benefits.items():
+                    if "expires" in data:
+                        for user_id, expire_time in list(data["expires"].items()):
+                            if datetime.utcnow().timestamp() >= expire_time:
+                                member = guild.get_member(int(user_id))
+                                role = guild.get_role(data["role"])
+                                if member and role:
+                                    try:
+                                        await member.remove_roles(role)
+                                    except discord.Forbidden:
+                                        pass
+                                del data["expires"][user_id]
 
     @commands.group()
     @commands.has_permissions(administrator=True)
@@ -234,6 +261,110 @@ class MisoSoup(commands.Cog):
                 role_mention = role.mention if role else "Not set"
                 embed.add_field(
                     name=privilege,
+                    value=(
+                        f"**Description:** {data.get('description', 'No description')}\n"
+                        f"**Cost:** {data['cost']}\n"
+                        f"**Role:** {role_mention}\n"
+                        f"**Duration:** {data['duration']} minutes\n"
+                        f"---------------------------------"
+                    ),
+                    inline=False
+                )
+            await ctx.send(embed=embed)
+
+    @commands.group()
+    async def sir(self, ctx):
+        """Commands for sirs."""
+        pass
+
+    @sir.group(aliases=["benefit"])
+    async def benefits(self, ctx):
+        """Commands for managing benefits"""
+        pass
+
+    @benefits.command()
+    @commands.has_permissions(administrator=True)
+    async def setcost(self, ctx, benefit: str, cost: int):
+        """Set the cost of a benefit."""
+        async with self.config.guild(ctx.guild).benefits() as benefits:
+            if benefit not in benefits:
+                return await ctx.send(f"Benefit '{benefit}' does not exist.")
+            benefits[benefit]["cost"] = cost
+        await ctx.send(f"Cost for '{benefit}' set to {cost}.")
+
+    @benefits.command()
+    @commands.has_permissions(administrator=True)
+    async def setrole(self, ctx, benefit: str, role: discord.Role):
+        """Set the role for a benefit."""
+        async with self.config.guild(ctx.guild).benefits() as benefits:
+            if benefit not in benefits:
+                return await ctx.send(f"Benefit '{benefit}' does not exist.")
+            benefits[benefit]["role"] = role.id
+        await ctx.send(f"Role for '{benefit}' set to {role.name}.")
+
+    @benefits.command()
+    @commands.has_permissions(administrator=True)
+    async def setduration(self, ctx, benefit: str, duration: int):
+        """Set the duration (in seconds) for a benefit."""
+        async with self.config.guild(ctx.guild).benefits() as benefits:
+            if benefit not in benefits:
+                return await ctx.send(f"Benefit '{benefit}' does not exist.")
+            benefits[benefit]["duration"] = duration
+        await ctx.send(f"Duration for '{benefit}' set to {duration} seconds.")
+
+    @benefits.command()
+    async def buy(self, ctx, benefit: str):
+        """Buy a benefit."""
+        guild = ctx.guild
+        sir_role_id = await self.config.guild(guild).sir_role()
+        sir_role = guild.get_role(sir_role_id)
+
+        if not sir_role:
+            return await ctx.send("Role for 'sir' is not valid.")
+
+        if sir_role not in ctx.author.roles:
+            return await ctx.send("Only sirs can buy benefits.")
+
+        async with self.config.guild(guild).benefits() as benefits:
+            if benefit not in benefits:
+                return await ctx.send(f"Benefit '{benefit}' does not exist.")
+            cost = benefits[benefit]["cost"]
+            role_id = benefits[benefit]["role"]
+            duration = benefits[benefit]["duration"]
+
+        if role_id is None:
+            return await ctx.send(f"Role for '{benefit}' has not been set.")
+
+        role = guild.get_role(role_id)
+        if not role:
+            return await ctx.send(f"Role for '{benefit}' is not valid.")
+
+        balance = await bank.get_balance(ctx.author)
+        if balance < cost:
+            return await ctx.send(f"You do not have enough funds to buy '{benefit}'. Cost: {cost}")
+
+        await bank.withdraw_credits(ctx.author, cost)
+        await ctx.author.add_roles(role)
+        expire_time = datetime.utcnow() + timedelta(seconds=duration * 60)
+        async with self.config.guild(guild).benefits() as benefits:
+            if "expires" not in benefits[benefit]:
+                benefits[benefit]["expires"] = {}
+            benefits[benefit]["expires"][str(ctx.author.id)] = expire_time.timestamp()
+        await ctx.send(f"You have successfully bought the '{benefit}' for {duration} minutes.")
+
+    @benefits.command()
+    async def list(self, ctx):
+        """List all benefits with desc, cost, and duration."""
+        guild = ctx.guild
+        async with self.config.guild(guild).benefits() as benefits:
+            if not benefits:
+                return await ctx.send("There are no benefits set.")
+            embed = discord.Embed(title="Benefits", color=discord.Color.blue())
+            for benefit, data in benefits.items():
+                role = guild.get_role(data["role"])
+                role_mention = role.mention if role else "Not set"
+                embed.add_field(
+                    name=benefit,
                     value=(
                         f"**Description:** {data.get('description', 'No description')}\n"
                         f"**Cost:** {data['cost']}\n"
