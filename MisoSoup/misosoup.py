@@ -28,7 +28,7 @@ class MisoSoup(commands.Cog):
                 }
             },
             "benefits": {
-                "ExtraControl": {
+                "BrothelVIP": {
                     "cost": 500,
                     "role": None,
                     "duration": 10,  # Default duration in minutes
