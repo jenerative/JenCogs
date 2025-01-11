@@ -353,7 +353,7 @@ class MisoSoup(commands.Cog):
         await ctx.send(f"You have successfully bought the '{benefit}' for {duration} minutes.")
 
     @benefits.command()
-    async def list(self, ctx):
+    async def view(self, ctx):
         """List all benefits with desc, cost, and duration."""
         guild = ctx.guild
         async with self.config.guild(guild).benefits() as benefits:
