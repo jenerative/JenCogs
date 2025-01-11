@@ -209,6 +209,31 @@ class MisoSoup(commands.Cog):
         await ctx.send(f"Duration for '{privilege}' set to {duration} seconds.")
 
     @privileges.command()
+    @commands.has_permissions(administrator=True)
+    async def add(self, ctx, privilege: str, cost: int, duration: int, *, description: str):
+        """Add a new privilege."""
+        async with self.config.guild(ctx.guild).privileges() as privileges:
+            if privilege in privileges:
+                return await ctx.send(f"Privilege '{privilege}' already exists.")
+            privileges[privilege] = {
+                "cost": cost,
+                "role": None,
+                "duration": duration,
+                "description": description
+            }
+        await ctx.send(f"Privilege '{privilege}' added with cost {cost}, duration {duration} minutes, and description '{description}'.")
+
+    @privileges.command()
+    @commands.has_permissions(administrator=True)
+    async def remove(self, ctx, privilege: str):
+        """Remove an existing privilege."""
+        async with self.config.guild(ctx.guild).privileges() as privileges:
+            if privilege not in privileges:
+                return await ctx.send(f"Privilege '{privilege}' does not exist.")
+            del privileges[privilege]
+        await ctx.send(f"Privilege '{privilege}' has been removed.")
+
+    @privileges.command()
     async def buy(self, ctx, privilege: str):
         """~~Buy~~ Rent a privilege."""
         guild = ctx.guild
@@ -311,6 +336,31 @@ class MisoSoup(commands.Cog):
                 return await ctx.send(f"Benefit '{benefit}' does not exist.")
             benefits[benefit]["duration"] = duration
         await ctx.send(f"Duration for '{benefit}' set to {duration} seconds.")
+
+    @benefits.command()
+    @commands.has_permissions(administrator=True)
+    async def add(self, ctx, benefit: str, cost: int, duration: int, *, description: str):
+        """Add a new benefit."""
+        async with self.config.guild(ctx.guild).benefits() as benefits:
+            if benefit in benefits:
+                return await ctx.send(f"Benefit '{benefit}' already exists.")
+            benefits[benefit] = {
+                "cost": cost,
+                "role": None,
+                "duration": duration,
+                "description": description
+            }
+        await ctx.send(f"Benefit '{benefit}' added with cost {cost}, duration {duration} minutes, and description '{description}'.")
+
+    @benefits.command()
+    @commands.has_permissions(administrator=True)
+    async def remove(self, ctx, benefit: str):
+        """Remove an existing benefit."""
+        async with self.config.guild(ctx.guild).benefits() as benefits:
+            if benefit not in benefits:
+                return await ctx.send(f"Benefit '{benefit}' does not exist.")
+            del benefits[benefit]
+        await ctx.send(f"Benefit '{benefit}' has been removed.")
 
     @benefits.command()
     async def buy(self, ctx, benefit: str):
