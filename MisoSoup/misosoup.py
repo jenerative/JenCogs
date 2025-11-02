@@ -180,7 +180,7 @@ class MisoSoup(commands.Cog):
             await ctx.send_help(ctx.command)
 
     @privileges.command(name="buy")
-    async def buy(self, ctx, privilege: str):
+    async def buy(self, ctx: commands.Context, *, privilege: str):
         """~~Buy~~ Rent a privilege."""
         guild = ctx.guild
         doll_role_id = await self.config.guild(guild).doll_role()
