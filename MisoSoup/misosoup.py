@@ -175,8 +175,49 @@ class MisoSoup(commands.Cog):
 
     @doll.group(aliases=["privilege"])
     async def privileges(self, ctx):
-        """Commands for managing privileges"""
-        pass
+        """Commands for managing privileges."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @privileges.command(name="buy")
+    async def buy(self, ctx, privilege: str):
+        """~~Buy~~ Rent a privilege."""
+        guild = ctx.guild
+        doll_role_id = await self.config.guild(guild).doll_role()
+        doll_role = guild.get_role(doll_role_id)
+
+        if not doll_role:
+            return await ctx.send("Role for 'doll' is not valid.")
+
+        if doll_role not in ctx.author.roles:
+            return await ctx.send("Only fuckdolls need to buy (rent) privileges.")
+
+        async with self.config.guild(guild).privileges() as privileges:
+            if privilege not in privileges:
+                return await ctx.send(f"Privilege '{privilege}' does not exist.")
+            cost = privileges[privilege]["cost"]
+            role_id = privileges[privilege]["role"]
+            duration = privileges[privilege]["duration"]
+
+        if role_id is None:
+            return await ctx.send(f"Role for '{privilege}' has not been set.")
+
+        role = guild.get_role(role_id)
+        if not role:
+            return await ctx.send(f"Role for '{privilege}' is not valid.")
+
+        balance = await bank.get_balance(ctx.author)
+        if balance < cost:
+            return await ctx.send(f"You do not have enough funds to buy '{privilege}'. Cost: {cost}")
+
+        await bank.withdraw_credits(ctx.author, cost)
+        await ctx.author.add_roles(role)
+        expire_time = datetime.utcnow() + timedelta(seconds=duration * 60)
+        async with self.config.guild(guild).privileges() as privileges:
+            if "expires" not in privileges[privilege]:
+                privileges[privilege]["expires"] = {}
+            privileges[privilege]["expires"][str(ctx.author.id)] = expire_time.timestamp()
+        await ctx.send(f"You have successfully rented the '{privilege}' for {duration} minutes.")
 
     @privileges.command()
     @commands.has_permissions(administrator=True)
@@ -232,46 +273,6 @@ class MisoSoup(commands.Cog):
                 return await ctx.send(f"Privilege '{privilege}' does not exist.")
             del privileges[privilege]
         await ctx.send(f"Privilege '{privilege}' has been removed.")
-
-    @privileges.command()
-    async def buy(self, ctx, privilege: str):
-        """~~Buy~~ Rent a privilege."""
-        guild = ctx.guild
-        doll_role_id = await self.config.guild(guild).doll_role()
-        doll_role = guild.get_role(doll_role_id)
-
-        if not doll_role:
-            return await ctx.send("Role for 'doll' is not valid.")
-
-        if doll_role not in ctx.author.roles:
-            return await ctx.send("Only fuckdolls need to buy (rent) privileges.")
-
-        async with self.config.guild(guild).privileges() as privileges:
-            if privilege not in privileges:
-                return await ctx.send(f"Privilege '{privilege}' does not exist.")
-            cost = privileges[privilege]["cost"]
-            role_id = privileges[privilege]["role"]
-            duration = privileges[privilege]["duration"]
-
-        if role_id is None:
-            return await ctx.send(f"Role for '{privilege}' has not been set.")
-
-        role = guild.get_role(role_id)
-        if not role:
-            return await ctx.send(f"Role for '{privilege}' is not valid.")
-
-        balance = await bank.get_balance(ctx.author)
-        if balance < cost:
-            return await ctx.send(f"You do not have enough funds to buy '{privilege}'. Cost: {cost}")
-
-        await bank.withdraw_credits(ctx.author, cost)
-        await ctx.author.add_roles(role)
-        expire_time = datetime.utcnow() + timedelta(seconds=duration * 60)
-        async with self.config.guild(guild).privileges() as privileges:
-            if "expires" not in privileges[privilege]:
-                privileges[privilege]["expires"] = {}
-            privileges[privilege]["expires"][str(ctx.author.id)] = expire_time.timestamp()
-        await ctx.send(f"You have successfully rented the '{privilege}' for {duration} minutes.")
 
     @privileges.command()
     async def list(self, ctx):
