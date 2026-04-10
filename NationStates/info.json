@@ -1,0 +1,10 @@
+{
+    "author": [ "Jen (@jenerative)" ],
+    "short" : "Discord NationStates integration cog",
+    "description" : "Automatically posts issues and creates polls for NationStates and submits chosen option to the game.",
+    "name" : "NationStates",
+    "requirements": ["tabulate"],
+    "tags" : ["game"],
+    "install_msg" : "Thank you for installing NationStates. Made by @jenerative.",
+    "end_user_data_statement": "This cog stores discord IDs as needed for operation."
+}
