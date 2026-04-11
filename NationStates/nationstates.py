@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import time
+import datetime
 import xml.etree.ElementTree as ET
 import discord # type: ignore
 from redbot.core import commands, Config, checks
@@ -9,7 +10,7 @@ from discord.ext import tasks # type: ignore
 NS_API = "https://www.nationstates.net/cgi-bin/api.cgi"
 
 class NationStatesIssues(commands.Cog):
-    """Integrate NationStates issues and community voting into Discord."""
+    """Integrate NationStates issues and community voting into Discord using Native Polls."""
 
     def __init__(self, bot):
         self.bot = bot
@@ -68,7 +69,7 @@ class NationStatesIssues(commands.Cog):
 
     @nssys.command()
     async def setduration(self, ctx, hours: int):
-        """Set the number of hours polls should remain open."""
+        """Set the number of hours polls should remain open (Max 768)."""
         if hours < 1:
             return await ctx.send("Duration must be at least 1 hour.")
         await self.config.guild(ctx.guild).poll_duration_hours.set(hours)
@@ -114,7 +115,6 @@ class NationStatesIssues(commands.Cog):
                 handled_issues.append(issue_id)
                 await self.config.guild(guild).handled_issues.set(handled_issues)
                 
-                # Create the thread and poll
                 self.bot.loop.create_task(self.create_poll(guild, channel, issue))
 
     @tasks.loop(minutes=5)
@@ -132,11 +132,9 @@ class NationStatesIssues(commands.Cog):
 
             for issue_id, poll_data in active_polls.items():
                 if now >= poll_data["end_time"]:
-                    # Tally votes and submit to API
                     await self.tally_and_submit(guild, issue_id, poll_data)
                     to_remove.append(issue_id)
 
-            # Clean up resolved polls from Config
             if to_remove:
                 async with self.config.guild(guild).active_polls() as active:
                     for i_id in to_remove:
@@ -169,7 +167,7 @@ class NationStatesIssues(commands.Cog):
             return None
 
     async def create_poll(self, guild, channel, issue):
-        """Creates the thread and registers the poll in Config."""
+        """Creates the thread and uses Discord's native poll feature."""
         issue_id = issue.get("id")
         title = issue.find("TITLE").text
         text_desc = issue.find("TEXT").text
@@ -182,37 +180,64 @@ class NationStatesIssues(commands.Cog):
         thread_name = f"Issue {issue_id}: {title}"[:100]
         thread = await msg.create_thread(name=thread_name, auto_archive_duration=1440)
 
-        # 2. Setup poll
+        # 2. Setup options text (Bypassing 55 char limit of native polls)
         number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
-        poll_msg = await thread.send("**Vote for your preferred action by reacting below!**")
-        
         for idx, option in enumerate(options):
             if idx < len(number_emojis):
                 await thread.send(f"{number_emojis[idx]} **Option {idx+1}:**\n> {option.text}")
-                await poll_msg.add_reaction(number_emojis[idx])
 
-        # 3. Calculate end time and save to Config
+        # 3. Create and send the Native Poll
         duration_hours = await self.config.guild(guild).poll_duration_hours()
-        end_time = time.time() + (duration_hours * 3600)
+        
+        poll = discord.Poll(
+            question="Which action should the government take?",
+            duration=datetime.timedelta(hours=duration_hours),
+            multiple=False
+        )
 
+        for idx in range(min(len(options), len(number_emojis))):
+            poll.add_answer(text=f"Option {idx+1}", emoji=number_emojis[idx])
+
+        poll_msg = await thread.send(poll=poll)
+
+        # 4. Calculate end time and save to Config
+        end_time = time.time() + (duration_hours * 3600)
         async with self.config.guild(guild).active_polls() as active_polls:
             active_polls[issue_id] = {
                 "channel_id": thread.id, 
                 "message_id": poll_msg.id,
                 "end_time": end_time
             }
-        
-        await thread.send(f"*Voting will conclude <t:{int(end_time)}:R>.*")
 
     async def tally_and_submit(self, guild, issue_id, poll_data):
-        """Counts reactions, submits to NS, and posts the detailed results."""
+        """Reads the native poll answers, submits to NS, and posts the detailed results."""
         try:
             thread = guild.get_channel(poll_data["channel_id"]) or await guild.fetch_channel(poll_data["channel_id"])
             poll_msg = await thread.fetch_message(poll_data["message_id"])
         except (discord.NotFound, discord.Forbidden):
-            return # Channel or message was deleted
+            return 
 
-        # Map the vote back to an API ID
+        # If poll hasn't naturally expired in UI yet, force it to end so we get final votes
+        if poll_msg.poll and not poll_msg.poll.is_finished():
+            try:
+                await poll_msg.end_poll()
+            except Exception:
+                pass
+
+        # Parse Native Poll Votes
+        if not poll_msg.poll:
+            await thread.send("Could not retrieve poll data for this issue.")
+            return
+
+        best_index = 0
+        max_votes = -1
+
+        # The answers array retains the order they were added
+        for idx, answer in enumerate(poll_msg.poll.answers):
+            if answer.vote_count > max_votes:
+                max_votes = answer.vote_count
+                best_index = idx
+
         issues_xml = await self.fetch_api(guild, {"q": "issues"})
         if issues_xml is None: return
         
@@ -227,42 +252,28 @@ class NationStatesIssues(commands.Cog):
             return
 
         options = target_issue.findall("OPTION")
-        number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
-        best_reaction, max_votes = None, -1
-
-        for reaction in poll_msg.reactions:
-            if str(reaction.emoji) in number_emojis and reaction.me:
-                votes = reaction.count - 1 # Ignore bot's own reaction
-                if votes > max_votes:
-                    max_votes = votes
-                    best_reaction = str(reaction.emoji)
-
-        selected_index = number_emojis.index(best_reaction) if best_reaction in number_emojis else 0
-        if selected_index >= len(options): selected_index = 0
-
-        chosen_option_id = options[selected_index].get("id")
+        if best_index >= len(options): best_index = 0
+        chosen_option_id = options[best_index].get("id")
 
         # Submit answer to API
         params = {"c": "issue", "issue": issue_id, "option": chosen_option_id}
         result_tree = await self.fetch_api(guild, params)
 
         if result_tree is not None:
-            # The result is wrapped in an <ISSUE> tag, which is usually inside <NATION>
             issue_result = result_tree.find(".//ISSUE")
             if issue_result is None:
-                issue_result = result_tree # Fallback if it's the root
+                issue_result = result_tree 
 
-            # 1. Paragraph / Description
             desc_element = issue_result.find(".//DESC")
             result_text = desc_element.text if desc_element is not None else "Issue resolved."
             
             result_embed = discord.Embed(
-                title=f"Voting Concluded: Option {selected_index+1} Selected", 
+                title=f"Voting Concluded: Option {best_index+1} Selected", 
                 description=f"**With {max_votes} votes, the government has acted!**\n\n*The Results:*\n{result_text[:4000]}",
                 color=discord.Color.gold()
             )
 
-            # 2. Reclassifications (Civil Rights, Economy, Political Freedoms)
+            # Reclassifications
             reclassifications = []
             for reclass in issue_result.findall(".//RECLASSIFICATION"):
                 r_type = reclass.get("type", "Classification").title()
@@ -270,7 +281,7 @@ class NationStatesIssues(commands.Cog):
             if reclassifications:
                 result_embed.add_field(name="Classifications Changed", value="\n".join(reclassifications), inline=False)
 
-            # 3. Policies Enacted & Abolished
+            # Policies
             new_policies = [p.text for p in issue_result.findall(".//NEWPOLICIES/POLICY")]
             if new_policies:
                 result_embed.add_field(name="Policies Enacted", value="\n".join(f"🟢 {p}" for p in new_policies), inline=True)
@@ -279,17 +290,17 @@ class NationStatesIssues(commands.Cog):
             if removed_policies:
                 result_embed.add_field(name="Policies Abolished", value="\n".join(f"🔴 {p}" for p in removed_policies), inline=True)
 
-            # 4. National Headings
+            # Headings
             headings = [h.text for h in issue_result.findall(".//HEADINGS/HEADING")]
             if headings:
                 result_embed.add_field(name="National Headings", value="\n".join(f"📰 {h}" for h in headings), inline=False)
 
-            # 5. Unlocks (Pictures, Banners, Easter Eggs)
+            # Unlocks
             unlocks = [u.text for u in issue_result.findall(".//UNLOCKS/UNLOCK")]
             if unlocks:
                 result_embed.add_field(name="New Unlocks", value="\n".join(f"🎉 {u}" for u in unlocks), inline=False)
 
-            # 6. Statistical Attributes Changed
+            # Stats
             rankings = issue_result.findall(".//RANKINGS/RANK")
             if rankings:
                 positive = 0
