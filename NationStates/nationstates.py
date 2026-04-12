@@ -2,12 +2,18 @@ import aiohttp
 import asyncio
 import time
 import datetime
+import random
 import xml.etree.ElementTree as ET
 import discord # type: ignore
 from redbot.core import commands, Config, checks
 from discord.ext import tasks # type: ignore
 
 NS_API = "https://www.nationstates.net/cgi-bin/api.cgi"
+
+def clean_ns_text(text: str) -> str:
+    """Helper to convert NationStates HTML formatting to Discord Markdown."""
+    if not text: return ""
+    return text.replace("<i>", "*").replace("</i>", "*").replace("<b>", "**").replace("</b>", "**")
 
 class NationStatesIssues(commands.Cog):
     """Integrate NationStates issues and community voting into Discord using Native Polls."""
@@ -169,8 +175,8 @@ class NationStatesIssues(commands.Cog):
     async def create_poll(self, guild, channel, issue):
         """Creates the thread and uses Discord's native poll feature."""
         issue_id = issue.get("id")
-        title = issue.find("TITLE").text
-        text_desc = issue.find("TEXT").text
+        title = clean_ns_text(issue.find("TITLE").text)
+        text_desc = clean_ns_text(issue.find("TEXT").text)
         options = issue.findall("OPTION")
 
         # 1. Base message and thread
@@ -184,7 +190,8 @@ class NationStatesIssues(commands.Cog):
         number_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
         for idx, option in enumerate(options):
             if idx < len(number_emojis):
-                await thread.send(f"{number_emojis[idx]} **Option {idx+1}:**\n> {option.text}")
+                option_text = clean_ns_text(option.text)
+                await thread.send(f"{number_emojis[idx]} **Option {idx+1}:**\n> {option_text}")
 
         # 3. Create and send the Native Poll
         duration_hours = await self.config.guild(guild).poll_duration_hours()
@@ -210,33 +217,41 @@ class NationStatesIssues(commands.Cog):
             }
 
     async def tally_and_submit(self, guild, issue_id, poll_data):
-        """Reads the native poll answers, submits to NS, and posts the detailed results."""
+        """Reads the native poll answers, handles ties, submits to NS, and posts results."""
         try:
             thread = guild.get_channel(poll_data["channel_id"]) or await guild.fetch_channel(poll_data["channel_id"])
             poll_msg = await thread.fetch_message(poll_data["message_id"])
         except (discord.NotFound, discord.Forbidden):
             return 
 
-        # If poll hasn't naturally expired in UI yet, force it to end so we get final votes
+        # If poll hasn't naturally expired in UI yet, force it to end
         if poll_msg.poll and not poll_msg.poll.is_finished():
             try:
                 await poll_msg.end_poll()
             except Exception:
                 pass
 
-        # Parse Native Poll Votes
+        # Parse Native Poll Votes with Random Tie-Breaker
         if not poll_msg.poll:
             await thread.send("Could not retrieve poll data for this issue.")
             return
 
-        best_index = 0
+        best_indices = []
         max_votes = -1
 
-        # The answers array retains the order they were added
         for idx, answer in enumerate(poll_msg.poll.answers):
             if answer.vote_count > max_votes:
                 max_votes = answer.vote_count
-                best_index = idx
+                best_indices = [idx]
+            elif answer.vote_count == max_votes:
+                best_indices.append(idx)
+
+        # Randomly select a winner if there is a tie
+        best_index = random.choice(best_indices)
+        
+        tie_message = ""
+        if len(best_indices) > 1:
+            tie_message = f"\n*A tie between {len(best_indices)} options was resolved randomly.*"
 
         issues_xml = await self.fetch_api(guild, {"q": "issues"})
         if issues_xml is None: return
@@ -265,11 +280,11 @@ class NationStatesIssues(commands.Cog):
                 issue_result = result_tree 
 
             desc_element = issue_result.find(".//DESC")
-            result_text = desc_element.text if desc_element is not None else "Issue resolved."
+            result_text = clean_ns_text(desc_element.text) if desc_element is not None else "Issue resolved."
             
             result_embed = discord.Embed(
                 title=f"Voting Concluded: Option {best_index+1} Selected", 
-                description=f"**With {max_votes} votes, the government has acted!**\n\n*The Results:*\n{result_text[:4000]}",
+                description=f"**With {max_votes} votes, the government has acted!**{tie_message}\n\n*The Results:*\n{result_text[:4000]}",
                 color=discord.Color.gold()
             )
 
