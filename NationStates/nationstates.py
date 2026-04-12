@@ -95,6 +95,65 @@ class NationStatesIssues(commands.Cog):
         embed.add_field(name="Active Polls", value=str(len(data["active_polls"])), inline=True)
         await ctx.send(embed=embed)
 
+    @nssys.command()
+    async def forcecheck(self, ctx):
+        """Manually force the bot to check for new issues immediately."""
+        data = await self.config.guild(ctx.guild).all()
+        channel_id = data.get("channel_id")
+        
+        if not channel_id:
+            return await ctx.send("Please set a channel first using `[p]nssys setchannel`.")
+            
+        channel = ctx.guild.get_channel(channel_id)
+        if not channel:
+            return await ctx.send("The configured channel could not be found.")
+
+        await ctx.send("Checking NationStates API for new issues...")
+        
+        async with ctx.typing():
+            issues_xml = await self.fetch_api(ctx.guild, {"q": "issues"})
+            if issues_xml is None:
+                return await ctx.send("Failed to fetch issues. Check your nation name, password, and user-agent.")
+
+            handled_issues = data.get("handled_issues", [])
+            found_new = False
+            
+            for issue in issues_xml.findall(".//ISSUE"):
+                issue_id = issue.get("id")
+                if issue_id in handled_issues:
+                    continue
+                
+                found_new = True
+                handled_issues.append(issue_id)
+                await self.config.guild(ctx.guild).handled_issues.set(handled_issues)
+                
+                self.bot.loop.create_task(self.create_poll(ctx.guild, channel, issue))
+                
+            if found_new:
+                await ctx.send("Found and posted new issues!")
+            else:
+                await ctx.send("No new issues found at this time.")
+
+    @nssys.command()
+    async def clearpolls(self, ctx):
+        """Cancel all active polls and wipe them from the bot's memory."""
+        active = await self.config.guild(ctx.guild).active_polls()
+        
+        if not active:
+            return await ctx.send("There are no active polls to clear.")
+
+        # Optional: Try to notify the active threads that the poll was cancelled
+        for issue_id, poll_data in active.items():
+            thread = ctx.guild.get_channel(poll_data["channel_id"])
+            if thread:
+                try:
+                    await thread.send("⚠️ *This poll has been forcefully cancelled by a server administrator and will not be submitted to NationStates.*")
+                except discord.Forbidden:
+                    pass
+
+        await self.config.guild(ctx.guild).active_polls.clear()
+        await ctx.send(f"Successfully cancelled and cleared {len(active)} active poll(s).")
+
 
     # --- Background Tasks & Logic ---
 
