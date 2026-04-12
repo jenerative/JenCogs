@@ -173,13 +173,15 @@ class NationStatesIssues(commands.Cog):
             poll_data = active[issue_id]
             await ctx.send(f"Ending the poll for Issue #{issue_id} early and tallying votes...")
             
-            # Fire the tally and submit logic
-            await self.tally_and_submit(ctx.guild, issue_id, poll_data)
+            # Fire the tally and submit logic, passing ctx for direct error reporting
+            success = await self.tally_and_submit(ctx.guild, issue_id, poll_data, ctx)
             
-            # Remove from active polls so it isn't processed again
-            del active[issue_id]
-            
-            await ctx.send(f"Successfully finalized and submitted Issue #{issue_id}.")
+            if success:
+                # Only remove from active polls if it successfully submitted
+                del active[issue_id]
+                await ctx.send(f"✅ Successfully finalized and submitted Issue #{issue_id}.")
+            else:
+                await ctx.send(f"❌ Failed to process Issue #{issue_id}. The poll remains active in memory. See error messages above.")
 
 
     # --- Background Tasks & Logic ---
@@ -224,8 +226,9 @@ class NationStatesIssues(commands.Cog):
 
             for issue_id, poll_data in active_polls.items():
                 if now >= poll_data["end_time"]:
-                    await self.tally_and_submit(guild, issue_id, poll_data)
-                    to_remove.append(issue_id)
+                    success = await self.tally_and_submit(guild, issue_id, poll_data)
+                    if success:
+                        to_remove.append(issue_id)
 
             if to_remove:
                 async with self.config.guild(guild).active_polls() as active:
@@ -302,29 +305,34 @@ class NationStatesIssues(commands.Cog):
                 "end_time": end_time
             }
 
-    async def tally_and_submit(self, guild, issue_id, poll_data):
+    async def tally_and_submit(self, guild, issue_id, poll_data, ctx=None):
         """Reads the native poll answers, handles ties, submits to NS, and posts results."""
-        try:
-            thread = guild.get_channel(poll_data["channel_id"]) or await guild.fetch_channel(poll_data["channel_id"])
-            poll_msg = await thread.fetch_message(poll_data["message_id"])
-        except (discord.NotFound, discord.Forbidden):
-            return 
+        # Determine where to send error messages (Thread, or the command channel)
+        notification_dest = ctx or guild.get_thread(poll_data["channel_id"]) or guild.get_channel(poll_data["channel_id"])
 
-        # discord.py uses 'is_finalised' (property), not 'is_finished()' (method).
+        try:
+            # Safely fetch the thread and the message
+            thread = guild.get_thread(poll_data["channel_id"]) or await guild.fetch_channel(poll_data["channel_id"])
+            poll_msg = await thread.fetch_message(poll_data["message_id"])
+        except Exception as e:
+            if notification_dest:
+                await notification_dest.send(f"**Error:** Could not find the thread or poll message. ({e})")
+            return False 
+
+        # Attempt to end the Discord Poll UI
         if poll_msg.poll and not getattr(poll_msg.poll, "is_finalised", False):
             try:
                 await poll_msg.end_poll()
-                # Give Discord's API a brief moment to lock in the final votes
-                await asyncio.sleep(1) 
+                # Give Discord's API 2 seconds to lock in the final votes
+                await asyncio.sleep(2) 
                 # Re-fetch the message to ensure we have the absolute final counts
                 poll_msg = await thread.fetch_message(poll_msg.id)
-            except Exception:
-                pass
+            except Exception as e:
+                await thread.send(f"⚠️ *Warning: Could not close the Discord poll UI automatically. ({e})*")
 
-        # Parse Native Poll Votes with Random Tie-Breaker
         if not poll_msg.poll:
-            await thread.send("Could not retrieve poll data for this issue.")
-            return
+            await thread.send("**Error:** Could not retrieve Discord poll data for this issue.")
+            return False
 
         best_indices = []
         max_votes = -1
@@ -343,8 +351,13 @@ class NationStatesIssues(commands.Cog):
         if len(best_indices) > 1:
             tie_message = f"\n*A tie between {len(best_indices)} options was resolved randomly.*"
 
+        # ANTI-RATE LIMIT PAUSE: Ensure we don't hit the strict NS API limit of 1 request/sec
+        await asyncio.sleep(1.5)
+
         issues_xml = await self.fetch_api(guild, {"q": "issues"})
-        if issues_xml is None: return
+        if issues_xml is None: 
+            await thread.send("**Error:** Failed to reach NationStates to verify the issue. (You may be rate-limited, try again in a few seconds).")
+            return False
         
         target_issue = None
         for issue in issues_xml.findall(".//ISSUE"):
@@ -353,12 +366,15 @@ class NationStatesIssues(commands.Cog):
                 break
                 
         if target_issue is None:
-            await thread.send("This issue is no longer available on NationStates (it may have expired).")
-            return
+            await thread.send("**Error:** This issue is no longer available on NationStates (it may have expired or already been answered).")
+            return False
 
         options = target_issue.findall("OPTION")
         if best_index >= len(options): best_index = 0
         chosen_option_id = options[best_index].get("id")
+
+        # ANTI-RATE LIMIT PAUSE #2
+        await asyncio.sleep(1.5)
 
         # Submit answer to API
         params = {"c": "issue", "issue": issue_id, "option": chosen_option_id}
@@ -428,5 +444,7 @@ class NationStatesIssues(commands.Cog):
                     )
 
             await thread.send(embed=result_embed)
+            return True
         else:
-            await thread.send("Failed to submit the final decision to NationStates (API Error).")
+            await thread.send("**Error:** Failed to submit the final decision to NationStates (API Error).")
+            return False
