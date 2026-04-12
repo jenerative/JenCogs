@@ -22,6 +22,8 @@ class NationStatesIssues(commands.Cog):
         self.bot = bot
         # Register the configuration schema
         self.config = Config.get_conf(self, identifier=8234892348, force_registration=True)
+        
+        # Register Guild-specific settings
         self.config.register_guild(
             channel_id=None,
             nation_name=None,
@@ -32,18 +34,23 @@ class NationStatesIssues(commands.Cog):
             handled_issues=[],
             active_polls={} # Structure: {"issue_id": {"channel_id": int, "message_id": int, "end_time": float}}
         )
-        self.session = aiohttp.ClientSession()
         
-        # Memory cache to translate stat IDs to readable names
-        self.census_scales_cache = {}
+        # Register Global settings for the 48-hour Census Scale cache
+        self.config.register_global(
+            census_scales={} 
+        )
+        
+        self.session = aiohttp.ClientSession()
         
         # Start the background tasks
         self.check_issues.start()
         self.check_active_polls.start()
+        self.update_census_scales.start()
 
     def cog_unload(self):
         self.check_issues.cancel()
         self.check_active_polls.cancel()
+        self.update_census_scales.cancel()
         asyncio.create_task(self.session.close())
 
     # --- Configuration Commands ---
@@ -176,11 +183,9 @@ class NationStatesIssues(commands.Cog):
             poll_data = active[issue_id]
             await ctx.send(f"Ending the poll for Issue #{issue_id} early and tallying votes...")
             
-            # Fire the tally and submit logic, passing ctx for direct error reporting
             success = await self.tally_and_submit(ctx.guild, issue_id, poll_data, ctx)
             
             if success:
-                # Only remove from active polls if it successfully submitted
                 del active[issue_id]
                 await ctx.send(f"✅ Successfully finalized and submitted Issue #{issue_id}.")
             else:
@@ -188,6 +193,36 @@ class NationStatesIssues(commands.Cog):
 
 
     # --- Background Tasks & Logic ---
+
+    @tasks.loop(hours=48)
+    async def update_census_scales(self):
+        """Background task to fetch the master list of all 140+ census scales every 2 days."""
+        user_agent = "Red-DiscordBot JenCogs/NationStates (Global Update)"
+        
+        # Borrow a configured user agent to be polite to the NS API
+        guilds = await self.config.all_guilds()
+        for guild_data in guilds.values():
+            if guild_data.get("user_agent") != "Red-DiscordBot JenCogs/NationStates":
+                user_agent = guild_data.get("user_agent")
+                break
+
+        headers = {"User-Agent": user_agent}
+        try:
+            async with self.session.get(f"{NS_API}?q=census", headers=headers) as resp:
+                if resp.status == 200:
+                    text = await resp.text()
+                    scales_xml = ET.fromstring(text)
+                    new_scales = {}
+                    for scale in scales_xml.findall(".//SCALE"):
+                        s_id = scale.get("id")
+                        s_name = scale.find("NAME")
+                        if s_id is not None and s_name is not None:
+                            new_scales[s_id] = s_name.text
+                    
+                    if new_scales:
+                        await self.config.census_scales.set(new_scales)
+        except Exception:
+            pass # Fails silently. It will just try again next cycle and use the existing cache until then.
 
     @tasks.loop(hours=1)
     async def check_issues(self):
@@ -241,6 +276,7 @@ class NationStatesIssues(commands.Cog):
 
     @check_issues.before_loop
     @check_active_polls.before_loop
+    @update_census_scales.before_loop
     async def before_loops(self):
         await self.bot.wait_until_red_ready()
 
@@ -262,7 +298,6 @@ class NationStatesIssues(commands.Cog):
 
         headers = {"User-Agent": user_agent}
         
-        # NS requires X-Pin for back-to-back requests to avoid 409 Login Spam errors
         if pin:
             headers["X-Pin"] = pin
         else:
@@ -271,7 +306,6 @@ class NationStatesIssues(commands.Cog):
         params["nation"] = nation
 
         async with self.session.get(NS_API, params=params, headers=headers) as resp:
-            # Capture the X-Pin header if NationStates provides one
             new_pin = resp.headers.get("X-Pin")
             if new_pin and new_pin != pin:
                 await self.config.guild(guild).pin.set(new_pin)
@@ -284,14 +318,11 @@ class NationStatesIssues(commands.Cog):
                 except ET.ParseError:
                     return None, "NationStates returned invalid XML."
             else:
-                # If we get a 409 or 403 with a PIN, the PIN might be stale or invalid.
-                # Clear the PIN and retry exactly once using the Password.
                 if resp.status in (409, 403) and pin and not is_retry:
                     await self.config.guild(guild).pin.set(None)
-                    await asyncio.sleep(2) # Brief pause before retry
+                    await asyncio.sleep(2) 
                     return await self.fetch_api(guild, params, is_retry=True)
 
-                # Clean up the error text to make it readable in Discord
                 clean_err = text.strip()[:200].replace('\n', ' ')
                 
                 if resp.status == 429:
@@ -353,11 +384,9 @@ class NationStatesIssues(commands.Cog):
 
     async def tally_and_submit(self, guild, issue_id, poll_data, ctx=None):
         """Reads the native poll answers, handles ties, submits to NS, and posts results."""
-        # Determine where to send error messages (Thread, or the command channel)
         notification_dest = ctx or guild.get_thread(poll_data["channel_id"]) or guild.get_channel(poll_data["channel_id"])
 
         try:
-            # Safely fetch the thread and the message
             thread = guild.get_thread(poll_data["channel_id"]) or await guild.fetch_channel(poll_data["channel_id"])
             poll_msg = await thread.fetch_message(poll_data["message_id"])
         except Exception as e:
@@ -365,13 +394,10 @@ class NationStatesIssues(commands.Cog):
                 await notification_dest.send(f"**Error:** Could not find the thread or poll message. ({e})")
             return False 
 
-        # Attempt to end the Discord Poll UI
         if poll_msg.poll and not getattr(poll_msg.poll, "is_finalised", False):
             try:
                 await poll_msg.end_poll()
-                # Give Discord's API 2 seconds to lock in the final votes
                 await asyncio.sleep(2) 
-                # Re-fetch the message to ensure we have the absolute final counts
                 poll_msg = await thread.fetch_message(poll_msg.id)
             except Exception as e:
                 await thread.send(f"⚠️ *Warning: Could not close the Discord poll UI automatically. ({e})*")
@@ -390,37 +416,14 @@ class NationStatesIssues(commands.Cog):
             elif answer.vote_count == max_votes:
                 best_indices.append(idx)
 
-        # Randomly select a winner if there is a tie
         best_index = random.choice(best_indices)
         
         tie_message = ""
         if len(best_indices) > 1:
             tie_message = f"\n*A tie between {len(best_indices)} options was resolved randomly.*"
 
-        # ANTI-RATE LIMIT PAUSE: Ensure we don't hit the strict NS API limit of 1 request/sec
         await asyncio.sleep(1.5)
 
-        # 1. FETCH CENSUS SCALES (To translate stat IDs to Names)
-        if not self.census_scales_cache:
-            user_agent = await self.config.guild(guild).user_agent()
-            headers = {"User-Agent": user_agent}
-            # Note: Deliberately bypassing fetch_api here so we don't append the "nation" parameter,
-            # which allows us to pull the master global scale list.
-            async with self.session.get("https://www.nationstates.net/cgi-bin/api.cgi?q=census", headers=headers) as resp:
-                if resp.status == 200:
-                    text = await resp.text()
-                    try:
-                        scales_xml = ET.fromstring(text)
-                        for scale in scales_xml.findall(".//SCALE"):
-                            s_id = scale.get("id")
-                            s_name = scale.find("NAME")
-                            if s_id is not None and s_name is not None:
-                                self.census_scales_cache[s_id] = s_name.text
-                    except ET.ParseError:
-                        pass
-            await asyncio.sleep(1.5)
-
-        # 2. VERIFY THE ISSUE EXISTS
         issues_xml, err_msg = await self.fetch_api(guild, {"q": "issues"})
         if issues_xml is None: 
             await thread.send(f"**Error:** Failed to reach NationStates to verify the issue.\nReason: `{err_msg}`")
@@ -440,14 +443,14 @@ class NationStatesIssues(commands.Cog):
         if best_index >= len(options): best_index = 0
         chosen_option_id = options[best_index].get("id")
 
-        # ANTI-RATE LIMIT PAUSE #2
         await asyncio.sleep(1.5)
 
-        # 3. SUBMIT ANSWER TO API
+        # SUBMIT ANSWER TO API
         params = {"c": "issue", "issue": issue_id, "option": chosen_option_id}
         result_tree, err_msg2 = await self.fetch_api(guild, params)
 
         if result_tree is not None:
+            # The API often returns everything inside the root <NATION> or <ISSUE>
             issue_result = result_tree.find(".//ISSUE")
             if issue_result is None:
                 issue_result = result_tree 
@@ -461,59 +464,67 @@ class NationStatesIssues(commands.Cog):
                 color=discord.Color.gold()
             )
 
-            # Headlines
-            headings = [h.text for h in issue_result.findall(".//HEADINGS/HEADING")]
-            if headings:
-                result_embed.add_field(name="📰 National Headlines", value="\n".join(f"• {h}" for h in headings), inline=False)
+            # --- HEADLINES ---
+            headlines_raw = result_tree.findall(".//HEADING") + result_tree.findall(".//HEADLINE")
+            headlines = [h.text for h in headlines_raw if h.text]
+            if headlines:
+                result_embed.add_field(name="📰 National Headlines", value="\n".join(f"• {h}" for h in headlines), inline=False)
 
-            # Reclassifications
+            # --- RECLASSIFICATIONS ---
+            reclass_raw = result_tree.findall(".//RECLASSIFICATION") + result_tree.findall(".//RECLASS")
             reclassifications = []
-            for reclass in issue_result.findall(".//RECLASSIFICATION"):
+            for reclass in reclass_raw:
                 r_type = reclass.get("type", "Classification").title()
                 reclassifications.append(f"**{r_type}:** {reclass.text}")
             if reclassifications:
                 result_embed.add_field(name="Classifications Changed", value="\n".join(reclassifications), inline=False)
 
-            # Policies
-            new_policies = [p.text for p in issue_result.findall(".//NEWPOLICIES/POLICY")]
+            # --- POLICIES ---
+            new_policies = [p.text for p in result_tree.findall(".//NEWPOLICIES/POLICY") if p.text]
             if new_policies:
                 result_embed.add_field(name="Policies Enacted", value="\n".join(f"🟢 {p}" for p in new_policies), inline=True)
                 
-            removed_policies = [p.text for p in issue_result.findall(".//REMOVEDPOLICIES/POLICY")]
+            removed_policies = [p.text for p in result_tree.findall(".//REMOVEDPOLICIES/POLICY") if p.text]
             if removed_policies:
                 result_embed.add_field(name="Policies Abolished", value="\n".join(f"🔴 {p}" for p in removed_policies), inline=True)
 
-            # Unlocks
-            unlocks = [u.text for u in issue_result.findall(".//UNLOCKS/UNLOCK")]
+            # --- UNLOCKS ---
+            unlocks = [u.text for u in result_tree.findall(".//UNLOCKS/UNLOCK") if u.text]
             if unlocks:
                 result_embed.add_field(name="New Unlocks", value="\n".join(f"🎉 {u}" for u in unlocks), inline=False)
 
-            # Detailed Stats Processing
-            rankings = issue_result.findall(".//RANKINGS/RANK")
+            # --- STATISTICAL ATTRIBUTES (Rounded & Sorted) ---
+            rankings = result_tree.findall(".//RANK")
             if rankings:
                 increases = []
                 decreases = []
+                
+                # Fetch the dynamically updated master list from the Global Config
+                census_scales = await self.config.census_scales()
+                
                 for r in rankings:
-                    s_id = r.get("id")
+                    s_id = str(r.get("id"))
                     pchange_elem = r.find("PCHANGE")
                     if pchange_elem is not None and pchange_elem.text:
                         try:
-                            change = float(pchange_elem.text)
-                            if change == 0: continue
+                            # Force standard rounding to the tenth
+                            change_rounded = round(float(pchange_elem.text), 1)
                             
-                            scale_name = self.census_scales_cache.get(s_id, f"Metric #{s_id}")
-                            change_rounded = round(change, 1)
+                            # Filter out micro-changes so it doesn't spam the channel
+                            if change_rounded == 0.0: continue
                             
-                            if change > 0:
+                            scale_name = census_scales.get(s_id, f"Metric #{s_id}")
+                            
+                            if change_rounded > 0:
                                 increases.append((scale_name, change_rounded))
-                            elif change < 0:
+                            elif change_rounded < 0:
                                 decreases.append((scale_name, change_rounded))
                         except ValueError:
                             pass
                 
-                # Sort by magnitude and take the top 5 of each to avoid spamming the channel
+                # Sort by magnitude and take the top 5 of each
                 increases.sort(key=lambda x: x[1], reverse=True)
-                decreases.sort(key=lambda x: x[1]) # Most negative first
+                decreases.sort(key=lambda x: x[1]) 
                 
                 top_increases = increases[:5]
                 top_decreases = decreases[:5]
