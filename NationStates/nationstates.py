@@ -562,7 +562,14 @@ class NationStatesIssues(commands.Cog):
                 if stat_changes:
                     result_embed.add_field(name="Most Significant Statistical Changes", value="\n".join(stat_changes), inline=False)
 
-            await thread.send(embed=result_embed)
+            # --- ADD "VIEW NATION" BUTTON ---
+            nation_name = await self.config.guild(guild).nation_name()
+            nation_url = f"https://www.nationstates.net/nation={nation_name}"
+            
+            view = discord.ui.View()
+            view.add_item(discord.ui.Button(label="View Nation", url=nation_url))
+
+            await thread.send(embed=result_embed, view=view)
             return True
         else:
             await thread.send(f"**Error:** Failed to submit the final decision to NationStates.\nReason: `{err_msg2}`")
