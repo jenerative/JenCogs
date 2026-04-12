@@ -6,10 +6,58 @@ import random
 import xml.etree.ElementTree as ET
 import discord # type: ignore
 from redbot.core import commands, Config, checks
-from redbot.core.utils.chat_formatting import pagify
 from discord.ext import tasks # type: ignore
 
 NS_API = "https://www.nationstates.net/cgi-bin/api.cgi"
+
+# Hardcoded dictionary for instant, API-free translation of all NationStates statistics.
+# Includes all current census scales up to the 140s.
+CENSUS_SCALES = {
+    "0": "Civil Rights", "1": "Economy", "2": "Political Freedoms", "3": "Population",
+    "4": "Wealth Gaps", "5": "Death Rate", "6": "Compassion", "7": "Eco-Friendliness",
+    "8": "Social Conservatism", "9": "Nudity", "10": "Industry: Automobile Manufacturing",
+    "11": "Industry: Cheese Exports", "12": "Industry: Basket Weaving", 
+    "13": "Industry: Information Technology", "14": "Industry: Pizza Delivery", 
+    "15": "Industry: Trout Fishing", "16": "Industry: Arms Manufacturing", 
+    "17": "Sector: Agriculture", "18": "Cheerfulness", "19": "Weather", 
+    "20": "Compliance", "21": "Safety", "22": "Lifespan", "23": "Ideological Radicality", 
+    "24": "Defense Forces", "25": "Pacifism", "26": "Economic Freedom", "27": "Taxation", 
+    "28": "Freedom from Taxation", "29": "Corruption", "30": "Integrity", 
+    "31": "Authoritarianism", "32": "Rebelliousness", "33": "Employment", 
+    "34": "Public Healthcare", "35": "Law Enforcement", "36": "Business Subsidization",
+    "37": "Religiousness", "38": "Income Equality", "39": "Niceness", "40": "Rudeness",
+    "41": "Intelligence", "42": "Ignorance", "43": "Toxicity", "44": "Averageness",
+    "45": "Human Development Index", "46": "Primitiveness", "47": "Scientific Advancement", 
+    "48": "Lifespan", "49": "Sector: Manufacturing", "50": "Sector: Services", 
+    "51": "Sector: Government", "52": "Public Education", "53": "Economic Output", 
+    "54": "Crime", "55": "Foreign Aid", "56": "Black Market", "57": "Quality of Life", 
+    "58": "Weaponization", "59": "Recreational Drug Use", "60": "Obesity", 
+    "61": "Secularism", "62": "Environmental Beauty", "63": "Charmlessness", "64": "Influence",
+    "65": "World Assembly Endorsements", "66": "Tourism", "67": "Public Transport", 
+    "68": "Industry: Book Publishing", "69": "Industry: Gambling", "70": "Industry: Insurance", 
+    "71": "Industry: Mining", "72": "Industry: Retail", "73": "Industry: Timber Woodchipping", 
+    "74": "Industry: Furniture Restoration", "75": "Industry: Beverage Sales", 
+    "76": "Industry: Space Program", "77": "Industry: Consumer Electronics", 
+    "78": "Industry: Bodyguard Manufacture", "79": "Industry: Beef-Based Agriculture",
+    "80": "Culture", "81": "Art Funding", "82": "Sector: Agriculture", "83": "Sector: Manufacturing", 
+    "84": "Sector: Services", "85": "Belief", "86": "Safety", "87": "Toxicity", 
+    "88": "Average Income", "89": "Economic Freedom", "90": "Taxation", "91": "Freedom from Taxation", 
+    "92": "Employment", "93": "Business Subsidization", "94": "Income Equality", 
+    "95": "Economic Output", "96": "Primitiveness", "97": "Scientific Advancement", 
+    "98": "Civil Rights", "99": "Political Freedoms", "100": "Corruption", "101": "Integrity", 
+    "102": "Authoritarianism", "103": "Rebelliousness", "104": "Law Enforcement",
+    "105": "Human Development Index", "106": "Compassion", "107": "Public Healthcare", 
+    "108": "Life Expectancy", "109": "Quality of Life", "110": "Foreign Aid", 
+    "111": "World Assembly Endorsements", "112": "Population", "113": "Safety", "114": "Nudity",
+    "115": "Tourism", "116": "Weaponization", "117": "Black Market", "118": "Influence", 
+    "119": "Ideological Radicality", "120": "Defense Forces", "121": "Pacifism", "122": "Militarism", 
+    "123": "Liberty", "124": "Happiness", "125": "Eco-Friendliness", "126": "Environmental Beauty", 
+    "127": "Obesity", "128": "Secularism", "129": "Wealth Gaps", "130": "Cheerfulness", 
+    "131": "Public Education", "132": "Public Transport", "133": "Social Conservatism", 
+    "134": "Death Rate", "135": "Charmlessness", "136": "Recreational Drug Use", 
+    "137": "Religiousness", "138": "Niceness", "139": "Rudeness", "140": "Intelligence", 
+    "141": "Ignorance", "142": "Averageness", "143": "Weather", "144": "Compliance", "145": "Toxicity"
+}
 
 def clean_ns_text(text: str) -> str:
     """Helper to convert NationStates HTML formatting to Discord Markdown."""
@@ -21,10 +69,7 @@ class NationStatesIssues(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        # Register the configuration schema
         self.config = Config.get_conf(self, identifier=8234892348, force_registration=True)
-        
-        # Register Guild-specific settings
         self.config.register_guild(
             channel_id=None,
             nation_name=None,
@@ -34,25 +79,16 @@ class NationStatesIssues(commands.Cog):
             poll_duration_hours=24,
             handled_issues=[],
             ping_role_id=None,
-            active_polls={} # Structure: {"issue_id": {"channel_id": int, "message_id": int, "end_time": float}}
+            active_polls={} 
         )
-        
-        # Register Global settings for the 48-hour Census Scale cache
-        self.config.register_global(
-            census_scales={} 
-        )
-        
         self.session = aiohttp.ClientSession()
         
-        # Start the background tasks
         self.check_issues.start()
         self.check_active_polls.start()
-        self.update_census_scales.start()
 
     def cog_unload(self):
         self.check_issues.cancel()
         self.check_active_polls.cancel()
-        self.update_census_scales.cancel()
         asyncio.create_task(self.session.close())
 
     # --- Configuration Commands ---
@@ -206,82 +242,8 @@ class NationStatesIssues(commands.Cog):
             else:
                 await ctx.send(f"❌ Failed to process Issue #{issue_id}. The poll remains active in memory. See error messages above.")
 
-    @nssys.command()
-    async def forcescales(self, ctx):
-        """Manually fetch and update the master Census Scales list from NationStates."""
-        await ctx.send("Fetching master census scales from NationStates...")
-        user_agent = await self.config.guild(ctx.guild).user_agent()
-        headers = {"User-Agent": user_agent}
-        
-        async with ctx.typing():
-            try:
-                async with self.session.get(f"{NS_API}?q=censusscales", headers=headers) as resp:
-                    if resp.status == 200:
-                        text = await resp.text()
-                        scales_xml = ET.fromstring(text)
-                        new_scales = {}
-                        for scale in scales_xml.findall(".//SCALE"):
-                            s_id = scale.get("id")
-                            s_name = scale.find("NAME")
-                            if s_id is not None and s_name is not None:
-                                new_scales[s_id] = s_name.text
-                        
-                        if new_scales:
-                            await self.config.census_scales.set(new_scales)
-                            await ctx.send(f"✅ Successfully cached {len(new_scales)} census scales.")
-                        else:
-                            await ctx.send("❌ Could not parse any scales from the API response.")
-                    else:
-                        await ctx.send(f"❌ API returned HTTP {resp.status}")
-            except Exception as e:
-                await ctx.send(f"❌ An error occurred: {e}")
-
-    @nssys.command()
-    async def showscales(self, ctx):
-        """Display the currently cached Census Scales."""
-        scales = await self.config.census_scales()
-        if not scales:
-            return await ctx.send("No scales are currently cached. Run `[p]nssys forcescales` first.")
-        
-        sorted_scales = sorted(scales.items(), key=lambda x: int(x[0]))
-        lines = [f"**ID {k}**: {v}" for k, v in sorted_scales]
-        
-        pages = list(pagify("\n".join(lines), page_length=1900))
-        await ctx.send(f"**Cached Census Scales ({len(scales)} Total):**")
-        for page in pages:
-            await ctx.send(page)
-
 
     # --- Background Tasks & Logic ---
-
-    @tasks.loop(hours=48)
-    async def update_census_scales(self):
-        """Background task to fetch the master list of all 140+ census scales every 2 days."""
-        user_agent = "Red-DiscordBot JenCogs/NationStates (Global Update)"
-        
-        guilds = await self.config.all_guilds()
-        for guild_data in guilds.values():
-            if guild_data.get("user_agent") != "Red-DiscordBot JenCogs/NationStates":
-                user_agent = guild_data.get("user_agent")
-                break
-
-        headers = {"User-Agent": user_agent}
-        try:
-            async with self.session.get(f"{NS_API}?q=censusscales", headers=headers) as resp:
-                if resp.status == 200:
-                    text = await resp.text()
-                    scales_xml = ET.fromstring(text)
-                    new_scales = {}
-                    for scale in scales_xml.findall(".//SCALE"):
-                        s_id = scale.get("id")
-                        s_name = scale.find("NAME")
-                        if s_id is not None and s_name is not None:
-                            new_scales[s_id] = s_name.text
-                    
-                    if new_scales:
-                        await self.config.census_scales.set(new_scales)
-        except Exception:
-            pass 
 
     @tasks.loop(hours=1)
     async def check_issues(self):
@@ -335,7 +297,6 @@ class NationStatesIssues(commands.Cog):
 
     @check_issues.before_loop
     @check_active_polls.before_loop
-    @update_census_scales.before_loop
     async def before_loops(self):
         await self.bot.wait_until_red_ready()
 
@@ -565,9 +526,6 @@ class NationStatesIssues(commands.Cog):
                 increases = []
                 decreases = []
                 
-                # Fetch the dynamically updated master list from the Global Config
-                census_scales = await self.config.census_scales()
-                
                 for r in rankings:
                     s_id = str(r.get("id"))
                     pchange_elem = r.find("PCHANGE")
@@ -579,7 +537,7 @@ class NationStatesIssues(commands.Cog):
                             # Filter out micro-changes so it doesn't spam the channel
                             if change_rounded == 0.0: continue
                             
-                            scale_name = census_scales.get(s_id, f"Metric #{s_id}")
+                            scale_name = CENSUS_SCALES.get(s_id, f"Metric #{s_id}")
                             
                             if change_rounded > 0:
                                 increases.append((scale_name, change_rounded))
