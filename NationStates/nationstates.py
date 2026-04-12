@@ -146,13 +146,11 @@ class NationStatesIssues(commands.Cog):
         if not active:
             return await ctx.send("There are no active polls to clear.")
 
-        # --- THE FIX ---
         # We need to remove the cancelled issues from the 'handled' list 
         # so forcecheck is allowed to pull them again.
         handled = await self.config.guild(ctx.guild).handled_issues()
         new_handled = [issue_id for issue_id in handled if issue_id not in active]
         await self.config.guild(ctx.guild).handled_issues.set(new_handled)
-        # ---------------
 
         for issue_id, poll_data in active.items():
             thread = ctx.guild.get_channel(poll_data["channel_id"])
@@ -312,10 +310,14 @@ class NationStatesIssues(commands.Cog):
         except (discord.NotFound, discord.Forbidden):
             return 
 
-        # If poll hasn't naturally expired in UI yet, force it to end
-        if poll_msg.poll and not poll_msg.poll.is_finished():
+        # discord.py uses 'is_finalised' (property), not 'is_finished()' (method).
+        if poll_msg.poll and not getattr(poll_msg.poll, "is_finalised", False):
             try:
                 await poll_msg.end_poll()
+                # Give Discord's API a brief moment to lock in the final votes
+                await asyncio.sleep(1) 
+                # Re-fetch the message to ensure we have the absolute final counts
+                poll_msg = await thread.fetch_message(poll_msg.id)
             except Exception:
                 pass
 
