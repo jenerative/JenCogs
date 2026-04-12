@@ -393,12 +393,15 @@ class NationStatesIssues(commands.Cog):
 
         poll_msg = await thread.send(poll=poll)
 
-        # 4. Announce and Ping Role if configured
+        # 4. Announce and Ping Role if configured (WITH ALLOWED MENTIONS OVERRIDE)
         role_id = await self.config.guild(guild).ping_role_id()
         if role_id:
             role = guild.get_role(role_id)
             if role:
-                await thread.send(f"{role.mention} A new issue is available for voting!")
+                await thread.send(
+                    f"{role.mention} A new issue is available for voting!", 
+                    allowed_mentions=discord.AllowedMentions(roles=[role])
+                )
 
         # 5. Calculate end time and save to Config
         end_time = time.time() + (duration_hours * 3600)
