@@ -6,6 +6,7 @@ import random
 import xml.etree.ElementTree as ET
 import discord # type: ignore
 from redbot.core import commands, Config, checks
+from redbot.core.utils.chat_formatting import pagify
 from discord.ext import tasks # type: ignore
 
 NS_API = "https://www.nationstates.net/cgi-bin/api.cgi"
@@ -32,6 +33,7 @@ class NationStatesIssues(commands.Cog):
             user_agent="Red-DiscordBot JenCogs/NationStates",
             poll_duration_hours=24,
             handled_issues=[],
+            ping_role_id=None,
             active_polls={} # Structure: {"issue_id": {"channel_id": int, "message_id": int, "end_time": float}}
         )
         
@@ -66,6 +68,16 @@ class NationStatesIssues(commands.Cog):
         """Set the channel where new issues will be posted."""
         await self.config.guild(ctx.guild).channel_id.set(channel.id)
         await ctx.send(f"New issues will now be posted as threads in {channel.mention}.")
+
+    @nssys.command()
+    async def setrole(self, ctx, role: discord.Role = None):
+        """Set a role to ping when a new issue opens. Leave blank to disable."""
+        if role is None:
+            await self.config.guild(ctx.guild).ping_role_id.set(None)
+            await ctx.send("Issue ping role has been disabled.")
+        else:
+            await self.config.guild(ctx.guild).ping_role_id.set(role.id)
+            await ctx.send(f"Will now ping **{role.name}** when new issues are posted.")
 
     @nssys.command()
     async def setnation(self, ctx, nation_name: str, password: str):
@@ -104,9 +116,13 @@ class NationStatesIssues(commands.Cog):
         embed.add_field(name="Poll Duration", value=f"{data['poll_duration_hours']} hour(s)", inline=True)
         embed.add_field(name="User-Agent", value=f"`{data['user_agent']}`", inline=False)
         
+        role_id = data.get("ping_role_id")
+        role_str = f"<@&{role_id}>" if role_id else "None"
+        embed.add_field(name="Ping Role", value=role_str, inline=True)
+        
         active_polls = list(data["active_polls"].keys())
         active_str = ", ".join(f"#{i}" for i in active_polls) if active_polls else "None"
-        embed.add_field(name="Active Polls", value=active_str, inline=False)
+        embed.add_field(name="Active Polls", value=active_str, inline=True)
         
         await ctx.send(embed=embed)
 
@@ -191,6 +207,51 @@ class NationStatesIssues(commands.Cog):
             else:
                 await ctx.send(f"❌ Failed to process Issue #{issue_id}. The poll remains active in memory. See error messages above.")
 
+    @nssys.command()
+    async def forcescales(self, ctx):
+        """Manually fetch and update the master Census Scales list from NationStates."""
+        await ctx.send("Fetching master census scales from NationStates...")
+        user_agent = await self.config.guild(ctx.guild).user_agent()
+        headers = {"User-Agent": user_agent}
+        
+        async with ctx.typing():
+            try:
+                async with self.session.get(f"{NS_API}?q=census", headers=headers) as resp:
+                    if resp.status == 200:
+                        text = await resp.text()
+                        scales_xml = ET.fromstring(text)
+                        new_scales = {}
+                        for scale in scales_xml.findall(".//SCALE"):
+                            s_id = scale.get("id")
+                            s_name = scale.find("NAME")
+                            if s_id is not None and s_name is not None:
+                                new_scales[s_id] = s_name.text
+                        
+                        if new_scales:
+                            await self.config.census_scales.set(new_scales)
+                            await ctx.send(f"✅ Successfully cached {len(new_scales)} census scales.")
+                        else:
+                            await ctx.send("❌ Could not parse any scales from the API response.")
+                    else:
+                        await ctx.send(f"❌ API returned HTTP {resp.status}")
+            except Exception as e:
+                await ctx.send(f"❌ An error occurred: {e}")
+
+    @nssys.command()
+    async def showscales(self, ctx):
+        """Display the currently cached Census Scales."""
+        scales = await self.config.census_scales()
+        if not scales:
+            return await ctx.send("No scales are currently cached. Run `[p]nssys forcescales` first.")
+        
+        sorted_scales = sorted(scales.items(), key=lambda x: int(x[0]))
+        lines = [f"**ID {k}**: {v}" for k, v in sorted_scales]
+        
+        pages = list(pagify("\n".join(lines), page_length=1900))
+        await ctx.send(f"**Cached Census Scales ({len(scales)} Total):**")
+        for page in pages:
+            await ctx.send(page)
+
 
     # --- Background Tasks & Logic ---
 
@@ -199,7 +260,6 @@ class NationStatesIssues(commands.Cog):
         """Background task to fetch the master list of all 140+ census scales every 2 days."""
         user_agent = "Red-DiscordBot JenCogs/NationStates (Global Update)"
         
-        # Borrow a configured user agent to be polite to the NS API
         guilds = await self.config.all_guilds()
         for guild_data in guilds.values():
             if guild_data.get("user_agent") != "Red-DiscordBot JenCogs/NationStates":
@@ -222,7 +282,7 @@ class NationStatesIssues(commands.Cog):
                     if new_scales:
                         await self.config.census_scales.set(new_scales)
         except Exception:
-            pass # Fails silently. It will just try again next cycle and use the existing cache until then.
+            pass 
 
     @tasks.loop(hours=1)
     async def check_issues(self):
@@ -373,7 +433,14 @@ class NationStatesIssues(commands.Cog):
 
         poll_msg = await thread.send(poll=poll)
 
-        # 4. Calculate end time and save to Config
+        # 4. Announce and Ping Role if configured
+        role_id = await self.config.guild(guild).ping_role_id()
+        if role_id:
+            role = guild.get_role(role_id)
+            if role:
+                await thread.send(f"{role.mention} A new issue is available for voting!")
+
+        # 5. Calculate end time and save to Config
         end_time = time.time() + (duration_hours * 3600)
         async with self.config.guild(guild).active_polls() as active_polls:
             active_polls[issue_id] = {
