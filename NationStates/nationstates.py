@@ -242,6 +242,18 @@ class NationStatesIssues(commands.Cog):
             else:
                 await ctx.send(f"❌ Failed to process Issue #{issue_id}. The poll remains active in memory. See error messages above.")
 
+    @nssys.command()
+    async def flushcache(self, ctx):
+        """Clears the bot's memory of previously seen issues so stuck ones can be pulled."""
+        active = await self.config.guild(ctx.guild).active_polls()
+        
+        # We only want to "remember" the issues that are currently active polls.
+        # Everything else is forgotten so it can be pulled fresh.
+        active_ids = list(active.keys())
+        await self.config.guild(ctx.guild).handled_issues.set(active_ids)
+        
+        await ctx.send(f"Cleared the memory cache! (Preserved {len(active_ids)} active polls). Run `[p]nssys forcecheck` again to pull the missing issues.")
+
 
     # --- Background Tasks & Logic ---
 
