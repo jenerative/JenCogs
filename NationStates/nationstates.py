@@ -146,6 +146,14 @@ class NationStatesIssues(commands.Cog):
         if not active:
             return await ctx.send("There are no active polls to clear.")
 
+        # --- THE FIX ---
+        # We need to remove the cancelled issues from the 'handled' list 
+        # so forcecheck is allowed to pull them again.
+        handled = await self.config.guild(ctx.guild).handled_issues()
+        new_handled = [issue_id for issue_id in handled if issue_id not in active]
+        await self.config.guild(ctx.guild).handled_issues.set(new_handled)
+        # ---------------
+
         for issue_id, poll_data in active.items():
             thread = ctx.guild.get_channel(poll_data["channel_id"])
             if thread:
@@ -155,7 +163,7 @@ class NationStatesIssues(commands.Cog):
                     pass
 
         await self.config.guild(ctx.guild).active_polls.clear()
-        await ctx.send(f"Successfully cancelled and cleared {len(active)} active poll(s).")
+        await ctx.send(f"Successfully cancelled and cleared {len(active)} active poll(s). You can now run `[p]nssys forcecheck` to re-pull them.")
 
     @nssys.command()
     async def endpoll(self, ctx, issue_id: str):
