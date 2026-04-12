@@ -122,7 +122,7 @@ class NationStatesIssues(commands.Cog):
         
         active_polls = list(data["active_polls"].keys())
         active_str = ", ".join(f"#{i}" for i in active_polls) if active_polls else "None"
-        embed.add_field(name="Active Polls", value=active_str, inline=True)
+        embed.add_field(name="Active Polls", value=active_str, inline=False)
         
         await ctx.send(embed=embed)
 
@@ -173,7 +173,6 @@ class NationStatesIssues(commands.Cog):
         if not active:
             return await ctx.send("There are no active polls to clear.")
 
-        # Remove the cancelled issues from the 'handled' list so forcecheck is allowed to pull them again.
         handled = await self.config.guild(ctx.guild).handled_issues()
         new_handled = [issue_id for issue_id in handled if issue_id not in active]
         await self.config.guild(ctx.guild).handled_issues.set(new_handled)
@@ -216,7 +215,7 @@ class NationStatesIssues(commands.Cog):
         
         async with ctx.typing():
             try:
-                async with self.session.get(f"{NS_API}?q=census", headers=headers) as resp:
+                async with self.session.get(f"{NS_API}?q=censusscales", headers=headers) as resp:
                     if resp.status == 200:
                         text = await resp.text()
                         scales_xml = ET.fromstring(text)
@@ -268,7 +267,7 @@ class NationStatesIssues(commands.Cog):
 
         headers = {"User-Agent": user_agent}
         try:
-            async with self.session.get(f"{NS_API}?q=census", headers=headers) as resp:
+            async with self.session.get(f"{NS_API}?q=censusscales", headers=headers) as resp:
                 if resp.status == 200:
                     text = await resp.text()
                     scales_xml = ET.fromstring(text)
