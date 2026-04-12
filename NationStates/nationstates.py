@@ -25,7 +25,8 @@ class NationStatesIssues(commands.Cog):
         self.config.register_guild(
             channel_id=None,
             nation_name=None,
-            password=None, 
+            password=None,
+            pin=None,
             user_agent="Red-DiscordBot JenCogs/NationStates",
             poll_duration_hours=24,
             handled_issues=[],
@@ -244,22 +245,35 @@ class NationStatesIssues(commands.Cog):
 
     # --- API and Execution Helpers ---
 
-    async def fetch_api(self, guild, params: dict):
+    async def fetch_api(self, guild, params: dict, is_retry=False):
         """
-        Helper to safely make authorized NationStates API calls.
+        Helper to safely make authorized NationStates API calls using X-Pin caching.
         Returns a tuple: (XML_Tree, Error_Message_String)
         """
         nation = await self.config.guild(guild).nation_name()
         password = await self.config.guild(guild).password()
+        pin = await self.config.guild(guild).pin()
         user_agent = await self.config.guild(guild).user_agent()
 
         if not nation or not password: 
             return None, "Nation name or password not configured."
 
-        headers = {"User-Agent": user_agent, "X-Password": password}
+        headers = {"User-Agent": user_agent}
+        
+        # NS requires X-Pin for back-to-back requests to avoid 409 Login Spam errors
+        if pin:
+            headers["X-Pin"] = pin
+        else:
+            headers["X-Password"] = password
+
         params["nation"] = nation
 
         async with self.session.get(NS_API, params=params, headers=headers) as resp:
+            # Capture the X-Pin header if NationStates provides one
+            new_pin = resp.headers.get("X-Pin")
+            if new_pin and new_pin != pin:
+                await self.config.guild(guild).pin.set(new_pin)
+
             text = await resp.text()
             
             if resp.status == 200:
@@ -268,11 +282,20 @@ class NationStatesIssues(commands.Cog):
                 except ET.ParseError:
                     return None, "NationStates returned invalid XML."
             else:
+                # If we get a 409 or 403 with a PIN, the PIN might be stale or invalid.
+                # Clear the PIN and retry exactly once using the Password.
+                if resp.status in (409, 403) and pin and not is_retry:
+                    await self.config.guild(guild).pin.set(None)
+                    await asyncio.sleep(2) # Brief pause before retry
+                    return await self.fetch_api(guild, params, is_retry=True)
+
                 # Clean up the error text to make it readable in Discord
                 clean_err = text.strip()[:200].replace('\n', ' ')
                 
                 if resp.status == 429:
                     return None, f"HTTP 429 Rate Limited. Too many requests to NationStates."
+                elif resp.status == 409:
+                    return None, f"HTTP 409 Conflict. (NS says: {clean_err})"
                 elif resp.status == 403:
                     return None, f"HTTP 403 Forbidden. Is the password correct? (NS says: {clean_err})"
                 elif resp.status == 400:
