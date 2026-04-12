@@ -150,8 +150,7 @@ class NationStatesIssues(commands.Cog):
         if not active:
             return await ctx.send("There are no active polls to clear.")
 
-        # We need to remove the cancelled issues from the 'handled' list 
-        # so forcecheck is allowed to pull them again.
+        # Remove the cancelled issues from the 'handled' list so forcecheck is allowed to pull them again.
         handled = await self.config.guild(ctx.guild).handled_issues()
         new_handled = [issue_id for issue_id in handled if issue_id not in active]
         await self.config.guild(ctx.guild).handled_issues.set(new_handled)
@@ -403,14 +402,22 @@ class NationStatesIssues(commands.Cog):
 
         # 1. FETCH CENSUS SCALES (To translate stat IDs to Names)
         if not self.census_scales_cache:
-            scales_xml, _ = await self.fetch_api(guild, {"q": "censusscales"})
-            if scales_xml is not None:
-                for scale in scales_xml.findall(".//SCALE"):
-                    s_id = scale.get("id")
-                    s_name = scale.find("NAME")
-                    if s_id is not None and s_name is not None:
-                        self.census_scales_cache[s_id] = s_name.text
-            # Another pause so we don't spam the API with the next request
+            user_agent = await self.config.guild(guild).user_agent()
+            headers = {"User-Agent": user_agent}
+            # Note: Deliberately bypassing fetch_api here so we don't append the "nation" parameter,
+            # which allows us to pull the master global scale list.
+            async with self.session.get("https://www.nationstates.net/cgi-bin/api.cgi?q=census", headers=headers) as resp:
+                if resp.status == 200:
+                    text = await resp.text()
+                    try:
+                        scales_xml = ET.fromstring(text)
+                        for scale in scales_xml.findall(".//SCALE"):
+                            s_id = scale.get("id")
+                            s_name = scale.find("NAME")
+                            if s_id is not None and s_name is not None:
+                                self.census_scales_cache[s_id] = s_name.text
+                    except ET.ParseError:
+                        pass
             await asyncio.sleep(1.5)
 
         # 2. VERIFY THE ISSUE EXISTS
@@ -484,7 +491,8 @@ class NationStatesIssues(commands.Cog):
             # Detailed Stats Processing
             rankings = issue_result.findall(".//RANKINGS/RANK")
             if rankings:
-                stat_changes = []
+                increases = []
+                decreases = []
                 for r in rankings:
                     s_id = r.get("id")
                     pchange_elem = r.find("PCHANGE")
@@ -494,22 +502,30 @@ class NationStatesIssues(commands.Cog):
                             if change == 0: continue
                             
                             scale_name = self.census_scales_cache.get(s_id, f"Metric #{s_id}")
+                            change_rounded = round(change, 1)
                             
                             if change > 0:
-                                stat_changes.append(f"📈 **{scale_name}**: +{change}")
+                                increases.append((scale_name, change_rounded))
                             elif change < 0:
-                                stat_changes.append(f"📉 **{scale_name}**: {change}")
+                                decreases.append((scale_name, change_rounded))
                         except ValueError:
                             pass
                 
-                # Discord embed fields have a 1024 character limit.
-                # Chunking the stats into columns of 15 to ensure they format cleanly and safely.
+                # Sort by magnitude and take the top 5 of each to avoid spamming the channel
+                increases.sort(key=lambda x: x[1], reverse=True)
+                decreases.sort(key=lambda x: x[1]) # Most negative first
+                
+                top_increases = increases[:5]
+                top_decreases = decreases[:5]
+                
+                stat_changes = []
+                for name, val in top_increases:
+                    stat_changes.append(f"📈 **{name}**: +{val}")
+                for name, val in top_decreases:
+                    stat_changes.append(f"📉 **{name}**: {val}")
+                
                 if stat_changes:
-                    chunk_size = 15
-                    for i in range(0, len(stat_changes), chunk_size):
-                        chunk = stat_changes[i:i + chunk_size]
-                        field_name = "Statistical Attributes Changed" if i == 0 else "Statistical Attributes (Cont.)"
-                        result_embed.add_field(name=field_name, value="\n".join(chunk), inline=True)
+                    result_embed.add_field(name="Most Significant Statistical Changes", value="\n".join(stat_changes), inline=False)
 
             await thread.send(embed=result_embed)
             return True
