@@ -115,9 +115,9 @@ class NationStatesIssues(commands.Cog):
         await ctx.send("Checking NationStates API for new issues...")
         
         async with ctx.typing():
-            issues_xml = await self.fetch_api(ctx.guild, {"q": "issues"})
+            issues_xml, err_msg = await self.fetch_api(ctx.guild, {"q": "issues"})
             if issues_xml is None:
-                return await ctx.send("Failed to fetch issues. Check your nation name, password, and user-agent.")
+                return await ctx.send(f"**Failed to fetch issues.**\nReason: `{err_msg}`")
 
             handled_issues = data.get("handled_issues", [])
             found_new = False
@@ -196,7 +196,7 @@ class NationStatesIssues(commands.Cog):
             channel = guild.get_channel(data["channel_id"])
             if not channel: continue
 
-            issues_xml = await self.fetch_api(guild, {"q": "issues"})
+            issues_xml, err_msg = await self.fetch_api(guild, {"q": "issues"})
             if issues_xml is None: continue
 
             handled_issues = await self.config.guild(guild).handled_issues()
@@ -245,21 +245,42 @@ class NationStatesIssues(commands.Cog):
     # --- API and Execution Helpers ---
 
     async def fetch_api(self, guild, params: dict):
-        """Helper to safely make authorized NationStates API calls."""
+        """
+        Helper to safely make authorized NationStates API calls.
+        Returns a tuple: (XML_Tree, Error_Message_String)
+        """
         nation = await self.config.guild(guild).nation_name()
         password = await self.config.guild(guild).password()
         user_agent = await self.config.guild(guild).user_agent()
 
-        if not nation or not password: return None
+        if not nation or not password: 
+            return None, "Nation name or password not configured."
 
         headers = {"User-Agent": user_agent, "X-Password": password}
         params["nation"] = nation
 
         async with self.session.get(NS_API, params=params, headers=headers) as resp:
+            text = await resp.text()
+            
             if resp.status == 200:
-                text = await resp.text()
-                return ET.fromstring(text)
-            return None
+                try:
+                    return ET.fromstring(text), None
+                except ET.ParseError:
+                    return None, "NationStates returned invalid XML."
+            else:
+                # Clean up the error text to make it readable in Discord
+                clean_err = text.strip()[:200].replace('\n', ' ')
+                
+                if resp.status == 429:
+                    return None, f"HTTP 429 Rate Limited. Too many requests to NationStates."
+                elif resp.status == 403:
+                    return None, f"HTTP 403 Forbidden. Is the password correct? (NS says: {clean_err})"
+                elif resp.status == 400:
+                    return None, f"HTTP 400 Bad Request. (NS says: {clean_err})"
+                elif resp.status == 404:
+                    return None, f"HTTP 404 Not Found. Unknown nation? (NS says: {clean_err})"
+                else:
+                    return None, f"HTTP {resp.status} Error: {clean_err}"
 
     async def create_poll(self, guild, channel, issue):
         """Creates the thread and uses Discord's native poll feature."""
@@ -354,9 +375,9 @@ class NationStatesIssues(commands.Cog):
         # ANTI-RATE LIMIT PAUSE: Ensure we don't hit the strict NS API limit of 1 request/sec
         await asyncio.sleep(1.5)
 
-        issues_xml = await self.fetch_api(guild, {"q": "issues"})
+        issues_xml, err_msg = await self.fetch_api(guild, {"q": "issues"})
         if issues_xml is None: 
-            await thread.send("**Error:** Failed to reach NationStates to verify the issue. (You may be rate-limited, try again in a few seconds).")
+            await thread.send(f"**Error:** Failed to reach NationStates to verify the issue.\nReason: `{err_msg}`")
             return False
         
         target_issue = None
@@ -378,7 +399,7 @@ class NationStatesIssues(commands.Cog):
 
         # Submit answer to API
         params = {"c": "issue", "issue": issue_id, "option": chosen_option_id}
-        result_tree = await self.fetch_api(guild, params)
+        result_tree, err_msg2 = await self.fetch_api(guild, params)
 
         if result_tree is not None:
             issue_result = result_tree.find(".//ISSUE")
@@ -446,5 +467,5 @@ class NationStatesIssues(commands.Cog):
             await thread.send(embed=result_embed)
             return True
         else:
-            await thread.send("**Error:** Failed to submit the final decision to NationStates (API Error).")
+            await thread.send(f"**Error:** Failed to submit the final decision to NationStates.\nReason: `{err_msg2}`")
             return False
