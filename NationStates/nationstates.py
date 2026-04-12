@@ -92,7 +92,11 @@ class NationStatesIssues(commands.Cog):
         embed.add_field(name="Nation Name", value=data["nation_name"] or "Not set", inline=True)
         embed.add_field(name="Poll Duration", value=f"{data['poll_duration_hours']} hour(s)", inline=True)
         embed.add_field(name="User-Agent", value=f"`{data['user_agent']}`", inline=False)
-        embed.add_field(name="Active Polls", value=str(len(data["active_polls"])), inline=True)
+        
+        active_polls = list(data["active_polls"].keys())
+        active_str = ", ".join(f"#{i}" for i in active_polls) if active_polls else "None"
+        embed.add_field(name="Active Polls", value=active_str, inline=False)
+        
         await ctx.send(embed=embed)
 
     @nssys.command()
@@ -136,13 +140,12 @@ class NationStatesIssues(commands.Cog):
 
     @nssys.command()
     async def clearpolls(self, ctx):
-        """Cancel all active polls and wipe them from the bot's memory."""
+        """Cancel all active polls and wipe them from the bot's memory without submitting."""
         active = await self.config.guild(ctx.guild).active_polls()
         
         if not active:
             return await ctx.send("There are no active polls to clear.")
 
-        # Optional: Try to notify the active threads that the poll was cancelled
         for issue_id, poll_data in active.items():
             thread = ctx.guild.get_channel(poll_data["channel_id"])
             if thread:
@@ -153,6 +156,24 @@ class NationStatesIssues(commands.Cog):
 
         await self.config.guild(ctx.guild).active_polls.clear()
         await ctx.send(f"Successfully cancelled and cleared {len(active)} active poll(s).")
+
+    @nssys.command()
+    async def endpoll(self, ctx, issue_id: str):
+        """End an active poll early, tally the current votes, and submit to NationStates."""
+        async with self.config.guild(ctx.guild).active_polls() as active:
+            if issue_id not in active:
+                return await ctx.send(f"Issue #{issue_id} is not currently an active poll.")
+
+            poll_data = active[issue_id]
+            await ctx.send(f"Ending the poll for Issue #{issue_id} early and tallying votes...")
+            
+            # Fire the tally and submit logic
+            await self.tally_and_submit(ctx.guild, issue_id, poll_data)
+            
+            # Remove from active polls so it isn't processed again
+            del active[issue_id]
+            
+            await ctx.send(f"Successfully finalized and submitted Issue #{issue_id}.")
 
 
     # --- Background Tasks & Logic ---
