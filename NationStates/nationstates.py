@@ -25,7 +25,7 @@ class NationStatesIssues(commands.Cog):
         self.config.register_guild(
             channel_id=None,
             nation_name=None,
-            password=None,
+            password=None, 
             pin=None,
             user_agent="Red-DiscordBot JenCogs/NationStates",
             poll_duration_hours=24,
@@ -33,6 +33,9 @@ class NationStatesIssues(commands.Cog):
             active_polls={} # Structure: {"issue_id": {"channel_id": int, "message_id": int, "end_time": float}}
         )
         self.session = aiohttp.ClientSession()
+        
+        # Memory cache to translate stat IDs to readable names
+        self.census_scales_cache = {}
         
         # Start the background tasks
         self.check_issues.start()
@@ -398,6 +401,19 @@ class NationStatesIssues(commands.Cog):
         # ANTI-RATE LIMIT PAUSE: Ensure we don't hit the strict NS API limit of 1 request/sec
         await asyncio.sleep(1.5)
 
+        # 1. FETCH CENSUS SCALES (To translate stat IDs to Names)
+        if not self.census_scales_cache:
+            scales_xml, _ = await self.fetch_api(guild, {"q": "censusscales"})
+            if scales_xml is not None:
+                for scale in scales_xml.findall(".//SCALE"):
+                    s_id = scale.get("id")
+                    s_name = scale.find("NAME")
+                    if s_id is not None and s_name is not None:
+                        self.census_scales_cache[s_id] = s_name.text
+            # Another pause so we don't spam the API with the next request
+            await asyncio.sleep(1.5)
+
+        # 2. VERIFY THE ISSUE EXISTS
         issues_xml, err_msg = await self.fetch_api(guild, {"q": "issues"})
         if issues_xml is None: 
             await thread.send(f"**Error:** Failed to reach NationStates to verify the issue.\nReason: `{err_msg}`")
@@ -420,7 +436,7 @@ class NationStatesIssues(commands.Cog):
         # ANTI-RATE LIMIT PAUSE #2
         await asyncio.sleep(1.5)
 
-        # Submit answer to API
+        # 3. SUBMIT ANSWER TO API
         params = {"c": "issue", "issue": issue_id, "option": chosen_option_id}
         result_tree, err_msg2 = await self.fetch_api(guild, params)
 
@@ -437,6 +453,11 @@ class NationStatesIssues(commands.Cog):
                 description=f"**With {max_votes} votes, the government has acted!**{tie_message}\n\n*The Results:*\n{result_text[:4000]}",
                 color=discord.Color.gold()
             )
+
+            # Headlines
+            headings = [h.text for h in issue_result.findall(".//HEADINGS/HEADING")]
+            if headings:
+                result_embed.add_field(name="📰 National Headlines", value="\n".join(f"• {h}" for h in headings), inline=False)
 
             # Reclassifications
             reclassifications = []
@@ -455,37 +476,40 @@ class NationStatesIssues(commands.Cog):
             if removed_policies:
                 result_embed.add_field(name="Policies Abolished", value="\n".join(f"🔴 {p}" for p in removed_policies), inline=True)
 
-            # Headings
-            headings = [h.text for h in issue_result.findall(".//HEADINGS/HEADING")]
-            if headings:
-                result_embed.add_field(name="National Headings", value="\n".join(f"📰 {h}" for h in headings), inline=False)
-
             # Unlocks
             unlocks = [u.text for u in issue_result.findall(".//UNLOCKS/UNLOCK")]
             if unlocks:
                 result_embed.add_field(name="New Unlocks", value="\n".join(f"🎉 {u}" for u in unlocks), inline=False)
 
-            # Stats
+            # Detailed Stats Processing
             rankings = issue_result.findall(".//RANKINGS/RANK")
             if rankings:
-                positive = 0
-                negative = 0
+                stat_changes = []
                 for r in rankings:
+                    s_id = r.get("id")
                     pchange_elem = r.find("PCHANGE")
                     if pchange_elem is not None and pchange_elem.text:
                         try:
                             change = float(pchange_elem.text)
-                            if change > 0: positive += 1
-                            elif change < 0: negative += 1
+                            if change == 0: continue
+                            
+                            scale_name = self.census_scales_cache.get(s_id, f"Metric #{s_id}")
+                            
+                            if change > 0:
+                                stat_changes.append(f"📈 **{scale_name}**: +{change}")
+                            elif change < 0:
+                                stat_changes.append(f"📉 **{scale_name}**: {change}")
                         except ValueError:
                             pass
                 
-                if positive > 0 or negative > 0:
-                    result_embed.add_field(
-                        name="Statistical Attributes Changed", 
-                        value=f"📈 {positive} national metrics increased.\n📉 {negative} national metrics decreased.", 
-                        inline=False
-                    )
+                # Discord embed fields have a 1024 character limit.
+                # Chunking the stats into columns of 15 to ensure they format cleanly and safely.
+                if stat_changes:
+                    chunk_size = 15
+                    for i in range(0, len(stat_changes), chunk_size):
+                        chunk = stat_changes[i:i + chunk_size]
+                        field_name = "Statistical Attributes Changed" if i == 0 else "Statistical Attributes (Cont.)"
+                        result_embed.add_field(name=field_name, value="\n".join(chunk), inline=True)
 
             await thread.send(embed=result_embed)
             return True
